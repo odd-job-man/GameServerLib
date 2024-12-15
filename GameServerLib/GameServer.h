@@ -1,14 +1,14 @@
 #pragma once
-#include "IHandler.h"
 #include "CLockFreeStack.h"
 #include "MyOVERLAPPED.h"
 #include "Timer.h"
 
-
+struct Session;
 class Stack;
+class Packet;
 class SmartPacket;
 
-class GameServer : public IHandler
+class GameServer
 {
 public:
 	GameServer();
@@ -20,11 +20,10 @@ public:
 	void SendPacket_ALREADY_ENCODED(ULONGLONG id, Packet* pPacket);
 	void SendPacket_ENQUEUE_ONLY(ULONGLONG id, Packet* pPacket);
 	virtual BOOL OnConnectionRequest() = 0;
-	virtual void* OnAccept(ULONGLONG id) = 0;
-	virtual void OnRelease(ULONGLONG id) = 0;
-	virtual void OnRecv(ULONGLONG id, Packet* pPacket) = 0;
+	virtual void* OnAccept(void* pPlayer) = 0;
 	virtual void OnError(ULONGLONG id, int errorType, Packet* pRcvdPacket) = 0;
 	virtual void OnPost(void* order) = 0;
+	ULONGLONG GetSessionID(const void* pPlayer);
 	// µð¹ö±ë¿ë
 	void Disconnect(ULONGLONG id);
 	void SendPostPerFrame();
@@ -34,6 +33,8 @@ private:
 	void ProcessTimeOut();
 	static unsigned __stdcall AcceptThread(LPVOID arg);
 	static unsigned __stdcall IOCPWorkerThread(LPVOID arg);
+	Session* GetSession(const void* pPlayer);
+	void* GetPlayer(const Session* pSession);
 public:
 	// Accept
 	DWORD IOCP_WORKER_THREAD_NUM_ = 0;
@@ -79,6 +80,6 @@ public:
 
 	// Disconnect
 	alignas(64) ULONGLONG disconnectTPS_ = 0;
+	friend class SerialContent;
 };
 
-using CGameServer = const GameServer;

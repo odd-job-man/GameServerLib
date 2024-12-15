@@ -1,5 +1,5 @@
 #pragma once
-enum class en_ContentsType
+enum en_ContentsType
 {
 	AUTH,
 	ECHO,	

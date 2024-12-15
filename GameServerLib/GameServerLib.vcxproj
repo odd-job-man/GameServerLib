@@ -24,7 +24,9 @@
     <ClCompile Include="HMonitor.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="GameServer.cpp" />
+    <ClCompile Include="ParallelContent.cpp" />
     <ClCompile Include="RingBuffer.cpp" />
+    <ClCompile Include="SerialContent.cpp" />
     <ClCompile Include="Session.cpp" />
     <ClCompile Include="Timer.cpp" />
     <ClCompile Include="UpdateBase.cpp" />
@@ -46,9 +48,13 @@
     <ClInclude Include="MYOVERLAPPED.h" />
     <ClInclude Include="GameServer.h" />
     <ClInclude Include="Packet.h" />
+    <ClInclude Include="ParallelContent.h" />
     <ClInclude Include="Parser.h" />
+    <ClInclude Include="PlayerBase.h" />
     <ClInclude Include="RingBuffer.h" />
+    <ClInclude Include="SerialContent.h" />
     <ClInclude Include="Session.h" />
+    <ClInclude Include="ThreadMessage.h" />
     <ClInclude Include="Timer.h" />
     <ClInclude Include="UpdateBase.h" />
   </ItemGroup>

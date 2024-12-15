@@ -41,8 +41,8 @@ public:
 	ScheduleRsc scdr;
 
 	LONG pqcsUpdateCnt_;
-	const HANDLE hcp_;
 	bool bFirst_ = false;
+	const HANDLE hcp_;
 };
 
 

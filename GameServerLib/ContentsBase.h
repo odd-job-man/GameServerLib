@@ -1,64 +1,57 @@
 #pragma once
+#include "ThreadMessage.h"
 #include "UpdateBase.h"
-#include "ContentsType.h"
-#include "GameServer.h"
 #include "Session.h"
-#include "CLinkedList.h"
 
-enum class en_MsgType
+class GameServer;
+
+class IContents
 {
-	ENTER,
-	RELEASE
-};
+public:
+	virtual void OnEnter(void* pPlayer) = 0;
+	virtual void OnLeave(void* pPlayer) = 0;
+	virtual void OnRecv(Packet* pPacket, void* pPlayer) = 0;
+	virtual void WorkerHanlePacketAtRecvLoop(Packet* pPacket, Session* pSession) = 0;
 
-using en_CMsgType = const en_MsgType;
-
-struct InterContentsMessage
-{
-	en_CMsgType msgType_;
-	CSession* pSession_;
-
-	InterContentsMessage(en_CMsgType msgType, CSession* pSession)
-		:msgType_{ msgType }, pSession_{ pSession }
-	{}
 };
 
 class ContentsBase : public UpdateBase
 {
 public:
-	using CContentsBase = const ContentsBase;
-	ContentsBase(DWORD tickPerFrame, HANDLE hCompletionPort, LONG pqcsLimit, GameServer* pNetServer);
+	ContentsBase(const DWORD tickPerFrame, const HANDLE hCompletionPort, const LONG pqcsLimit, const bool bSerial, GameServer* pNetServer);
 	virtual void OnEnter(void* pPlayer) = 0;
 	virtual void OnLeave(void* pPlayer) = 0;
 	virtual void OnRecv(Packet* pPacket, void* pPlayer) = 0;
-	void RequestContentsMove(en_CContentsType nextContents, Session* pSession, bool bFirst);
-	void FlushInterContentsMsgQ();
-	void FlushSessionRecvMsgQ();
-
-	__forceinline void EnqMessage(en_CMsgType msgType, CSession* pSession)
+	virtual void WorkerHanlePacketAtRecvLoop(Packet* pPacket, Session* pSession) = 0;
+	virtual void ReleaseSessionPost(Session* pSession) = 0;
+	virtual void RequestFirstEnter(const void* pPlayer) = 0;
+	virtual void RequestEnter(const bool bPrevContentsIsSerialize, Session* pSession) = 0;
+	static inline void RegisterContents(int contentsType, const ContentsBase* pContent)
 	{
-		InterContentsMessage* pMsg = pool_.Alloc(msgType, pSession);
-		MessageQ_.Enqueue(pMsg);
+		if (contentsType >= arrayLength) __debugbreak();
+		pArr_[contentsType] = const_cast<ContentsBase*>(pContent);
 	}
 
-	__forceinline static void RegisterContents(CContentsBase* pContents, en_CContentsType type)
+	__forceinline static void SetContentsToFirst(int firstContentType)
 	{
-		if (((int)type) >= arrayLength) __debugbreak();
-		pArr_[(int)type] = const_cast<ContentsBase*>(pContents);
+		pFirst = pArr_[firstContentType];
 	}
 
-	static  ContentsBase* GetContentsPtr(en_CContentsType type)
+	__forceinline static void FirstEnter(const void* pPlayer)
 	{
-		return pArr_[(int)type];
+		const_cast<ContentsBase*>(pFirst)->RequestFirstEnter(pPlayer);
 	}
 
-private:
-	friend class CTlsObjectPool<InterContentsMessage, true>;
-	CLockFreeQueue<InterContentsMessage*> MessageQ_;
-	CTlsObjectPool<InterContentsMessage, true> pool_;
-	GameServer* pGameServer_;
-	CLinkedList sessionList;
+	__forceinline static  ContentsBase* GetContentsPtr(int contentType)
+	{
+		return pArr_[contentType];
+	}
+
+
 	static constexpr int arrayLength = 1000;
 	static inline ContentsBase* pArr_[arrayLength];
+	static inline const ContentsBase* pFirst;
+	GameServer* pGameServer_;
+	const bool bSerial_;
+	friend class GameServer;
 };
-

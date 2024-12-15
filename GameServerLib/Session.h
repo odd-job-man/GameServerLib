@@ -11,13 +11,16 @@ struct Session
 {
 	static constexpr LONG RELEASE_FLAG = 0x80000000;
 	LINKED_NODE node{ offsetof(Session,node) };
+	void* pPlayer_;
+	ContentsBase* pCurContent;
+	BOOL bRegisterLeave;
+	int ReservedNextContent;
 	CLockFreeQueue<Packet*> recvMsgQ_;
 	SOCKET sock_;
 	ULONGLONG id_;
 	ULONGLONG lastRecvTime;
 	LONG lSendBufNum_;
 	BOOL bDisconnectCalled_;
-	ContentsBase* pContent;
 	MYOVERLAPPED recvOverlapped;
 	MYOVERLAPPED sendOverlapped;
 	LONG IoCnt_;
@@ -26,7 +29,7 @@ struct Session
 	BOOL bSendingAtWorker_;
 	Packet* pSendPacketArr_[50];
 	RingBuffer recvRB_;
-	BOOL Init(SOCKET clientSock, ULONGLONG ullClientID, SHORT shIdx);
+	BOOL Init(SOCKET clientSock, ULONGLONG ullClientID, SHORT shIdx, void* pPlayer);
 
 	Session()
 		:IoCnt_{ Session::RELEASE_FLAG | 0 }
