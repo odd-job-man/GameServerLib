@@ -13,7 +13,6 @@ struct Session
 	LINKED_NODE node{ offsetof(Session,node) };
 	void* pPlayer_;
 	ContentsBase* pCurContent;
-	BOOL bRegisterLeave;
 	int ReservedNextContent;
 	CLockFreeQueue<Packet*> recvMsgQ_;
 	SOCKET sock_;

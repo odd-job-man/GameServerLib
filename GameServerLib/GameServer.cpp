@@ -42,17 +42,17 @@ GameServer::GameServer()
 	short SERVER_PORT = (short)_wtoi((LPCWSTR)pStart);
 
 	GetValue(psr, L"IOCP_WORKER_THREAD", (PVOID*)&pStart, nullptr);
-	IOCP_WORKER_THREAD_NUM_ = (DWORD)_wtoi((LPCWSTR)pStart);
+	*(DWORD*)(&IOCP_WORKER_THREAD_NUM_) = (DWORD)_wtoi((LPCWSTR)pStart);
 
 	GetValue(psr, L"IOCP_ACTIVE_THREAD", (PVOID*)&pStart, nullptr);
-	IOCP_ACTIVE_THREAD_NUM_ = (DWORD)_wtoi((LPCWSTR)pStart);
+	*(DWORD*)(&IOCP_ACTIVE_THREAD_NUM_) = (DWORD)_wtoi((LPCWSTR)pStart);
 	updateThreadSendCounter_ = IOCP_ACTIVE_THREAD_NUM_;
 
 	GetValue(psr, L"IS_ZERO_BYTE_SEND", (PVOID*)&pStart, nullptr);
 	int bZeroByteSend = _wtoi((LPCWSTR)pStart);
 
 	GetValue(psr, L"SESSION_MAX", (PVOID*)&pStart, nullptr);
-	maxSession_ = _wtoi((LPCWSTR)pStart);
+	*(LONG*)(&maxSession_) = _wtoi((LPCWSTR)pStart);
 
 	GetValue(psr, L"PACKET_CODE", (PVOID*)&pStart, nullptr);
 	Packet::PACKET_CODE = (unsigned char)_wtoi((LPCWSTR)pStart);
@@ -61,16 +61,16 @@ GameServer::GameServer()
 	Packet::FIXED_KEY = (unsigned char)_wtoi((LPCWSTR)pStart);
 
 	GetValue(psr, L"TIME_OUT_MILLISECONDS", (PVOID*)&pStart, nullptr);
-	TIME_OUT_MILLISECONDS_ = _wtoi((LPCWSTR)pStart);
+	*((ULONGLONG*)&TIME_OUT_MILLISECONDS_) = _wtoi((LPCWSTR)pStart);
 
 	GetValue(psr, L"TIME_OUT_CHECK_INTERVAL", (PVOID*)&pStart, nullptr);
-	TIME_OUT_CHECK_INTERVAL_ = (ULONGLONG)_wtoi((LPCWSTR)pStart);
+	*((ULONGLONG*)&TIME_OUT_CHECK_INTERVAL_) = (ULONGLONG)_wtoi((LPCWSTR)pStart);
 
 	GetValue(psr, L"bAccSend", (PVOID*)&pStart, nullptr);
-	bAccSend = (int)_wtoi((LPCWSTR)pStart);
+	*((int*)(&bAccSend)) = (int)_wtoi((LPCWSTR)pStart);
 
 	GetValue(psr, L"USER_MAX", (PVOID*)&pStart, nullptr);
-	maxPlayer_ = (int)_wtoi((LPCWSTR)pStart);
+	*((LONG*)&maxPlayer_) = (int)_wtoi((LPCWSTR)pStart);
 	ReleaseParser(psr);
 
 #ifdef DEBUG_LEAK
@@ -526,6 +526,11 @@ unsigned __stdcall GameServer::IOCPWorkerThread(LPVOID arg)
 				pNetServer->SendProcAccum(pSession, dwNOBT);
 				break;
 
+			case OVERLAPPED_REASON::UPDATE:
+				((UpdateBase*)(pSession))->Update();
+				bContinue = true;
+				break;
+
 			case OVERLAPPED_REASON::POST:
 				pNetServer->OnPost(pSession);
 				bContinue = true;
@@ -564,9 +569,6 @@ void* GameServer::GetPlayer(const Session* pSession)
 
 BOOL GameServer::RecvPost(Session* pSession)
 {
-	if (pSession->bDisconnectCalled_ == TRUE)
-		return FALSE;
-
 	WSABUF wsa[2];
 	wsa[0].buf = pSession->recvRB_.GetWriteStartPtr();
 	wsa[0].len = pSession->recvRB_.DirectEnqueueSize();
@@ -619,10 +621,6 @@ BOOL GameServer::SendPost(Session* pSession)
 		// SendPacket에서 in을 옮겨서 UseSize가 0보다 커진시점에서 Send완료통지가 도착해서 Out을 옮기고 플래그 해제 Recv완료통지 스레드가 먼저 SendPost에 도달해 플래그를 선점한경우 UseSize가 0이나온다.
 		// 여기서 flag를 다시 FALSE로 바꾸어주지 않아서 멈춤발생
 		dwBufferNum = pSession->sendPacketQ_.GetSize();
-		//if (dwBufferNum > 50)
-		//{
-		//	printf("Buffer 50 Numeum : %d\n", dwBufferNum);
-		//}
 
 		if (dwBufferNum <= 0)
 			InterlockedExchange((LONG*)&pSession->bSendingInProgress_, FALSE);
@@ -781,9 +779,6 @@ void GameServer::RecvProc(Session* pSession, int numberOfBytesTransferred)
 	pSession->recvRB_.MoveInPos(numberOfBytesTransferred);
 	while (1)
 	{
-		if (pSession->bDisconnectCalled_ == TRUE)
-			return;
-
 		Packet::NetHeader header;
 		if (pSession->recvRB_.Peek((char*)&header, sizeof(NetHeader)) == 0)
 			break;
@@ -805,7 +800,6 @@ void GameServer::RecvProc(Session* pSession, int numberOfBytesTransferred)
 		}
 
 		pSession->recvRB_.MoveOutPos(sizeof(NetHeader));
-
 		Packet* pPacket = PACKET_ALLOC(Net);
 		pSession->recvRB_.Dequeue(pPacket->GetPayloadStartPos<Net>(), header.payloadLen_);
 		pPacket->MoveWritePos(header.payloadLen_);
@@ -829,9 +823,6 @@ void GameServer::RecvProc(Session* pSession, int numberOfBytesTransferred)
 
 void GameServer::SendProc(Session* pSession, DWORD dwNumberOfBytesTransferred)
 {
-	if (pSession->bDisconnectCalled_ == TRUE)
-		return;
-
 	LONG sendBufNum = InterlockedExchange(&pSession->lSendBufNum_, 0);
 	for (LONG i = 0; i < sendBufNum; ++i)
 	{
@@ -848,9 +839,6 @@ void GameServer::SendProc(Session* pSession, DWORD dwNumberOfBytesTransferred)
 
 void GameServer::SendProcAccum(Session* pSession, DWORD dwNumberOfBytesTransferred)
 {
-	if (pSession->bDisconnectCalled_ == TRUE)
-		return;
-
 	LONG sendBufNum = InterlockedExchange(&pSession->lSendBufNum_, 0);
 	for (LONG i = 0; i < sendBufNum; ++i)
 	{

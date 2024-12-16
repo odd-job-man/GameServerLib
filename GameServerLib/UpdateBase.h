@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include "MyJob.h"
 #include "CLockFreeQueue.h"
+#include "Monitorable.h"
 
 struct ScheduleRsc
 {
@@ -22,13 +23,11 @@ struct ScheduleRsc
 	}
 };
 
-class UpdateBase : Excutable
+class UpdateBase
 {
 public:
 	UpdateBase(DWORD tickPerFrame, HANDLE hCompletionPort, LONG pqcsLimit);
 	void firstTimeInit();
-	virtual void Excute() override { Update(); }
-	virtual void OnMonitor() = 0;
 	void Update();
 	virtual void Update_IMPL() = 0;
 	LONG singleThreadGate_ = 0;
@@ -46,16 +45,15 @@ public:
 };
 
 
-class MonitoringUpdate : public UpdateBase
+class MonitoringUpdate : public UpdateBase 
 {
 public:
 	static constexpr int len = 14;
-	UpdateBase* pArr_[len];
+	Monitorable* pArr_[len];
 	int curNum_ = 0;
 	MonitoringUpdate(HANDLE hCompletionPort, DWORD tickPerFrame, LONG pqcsLimit);
-	void RegisterMonitor(UpdateBase* pTargetToMonitor);
+	void RegisterMonitor(const Monitorable* pTargetToMonitor);
 	virtual void Update_IMPL() override;
-	__forceinline virtual void OnMonitor() override {};
 };
 
 struct UpdatePQCSInfo

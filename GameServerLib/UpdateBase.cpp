@@ -63,10 +63,10 @@ MonitoringUpdate::MonitoringUpdate(HANDLE hCompletionPort, DWORD tickPerFrame, L
 	:UpdateBase{ tickPerFrame,hCompletionPort,pqcsLimit }
 {}
 
-void MonitoringUpdate::RegisterMonitor(UpdateBase * pTargetToMonitor)
+void MonitoringUpdate::RegisterMonitor(const Monitorable* pTargetToMonitor)
 {
 	if (curNum_ >= len)	__debugbreak();
-	pArr_[curNum_++] = pTargetToMonitor;
+	pArr_[curNum_++] = const_cast<Monitorable*>(pTargetToMonitor);
 }
 
 void MonitoringUpdate::Update_IMPL()

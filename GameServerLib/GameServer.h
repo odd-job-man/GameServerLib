@@ -3,12 +3,14 @@
 #include "MyOVERLAPPED.h"
 #include "Timer.h"
 
+#include "Monitorable.h"
+
 struct Session;
 class Stack;
 class Packet;
 class SmartPacket;
 
-class GameServer
+class GameServer : public Monitorable
 {
 public:
 	GameServer();
@@ -23,6 +25,9 @@ public:
 	virtual void* OnAccept(void* pPlayer) = 0;
 	virtual void OnError(ULONGLONG id, int errorType, Packet* pRcvdPacket) = 0;
 	virtual void OnPost(void* order) = 0;
+	// Monitorable
+	virtual void OnMonitor() = 0; 
+
 	ULONGLONG GetSessionID(const void* pPlayer);
 	// µð¹ö±ë¿ë
 	void Disconnect(ULONGLONG id);
@@ -37,15 +42,15 @@ private:
 	void* GetPlayer(const Session* pSession);
 public:
 	// Accept
-	DWORD IOCP_WORKER_THREAD_NUM_ = 0;
-	DWORD IOCP_ACTIVE_THREAD_NUM_ = 0;
+	const DWORD IOCP_WORKER_THREAD_NUM_ = 0;
+	const DWORD IOCP_ACTIVE_THREAD_NUM_ = 0;
 	LONG lSessionNum_ = 0;
-	LONG maxSession_ = 0;
+	const LONG maxSession_ = 0;
 	LONG lPlayerNum_ = 0;
-	LONG maxPlayer_ = 0;
+	const LONG maxPlayer_ = 0;
 	LONG playerSize_ = 0;
-	LONG TIME_OUT_MILLISECONDS_ = 0;
-	ULONGLONG TIME_OUT_CHECK_INTERVAL_ = 0;
+	const LONG TIME_OUT_MILLISECONDS_ = 0;
+	const ULONGLONG TIME_OUT_CHECK_INTERVAL_ = 0;
 	ULONGLONG ullIdCounter = 0;
 	Session* pSessionArr_;
 	CLockFreeStack<short> DisconnectStack_;
@@ -68,7 +73,9 @@ public:
 	void SetEntirePlayerMemory(int MaxPlayerNum, int playerSize);
 	virtual void ReleaseSession(Session* pSession);
 	friend class Packet;
-	int bAccSend = 0;
+	friend class SerialContent;
+	friend class ParallelContent;
+	const int bAccSend = 0;
 public:
 	void ReleaseSessionContents(Session* pSession);
 	ULONGLONG acceptCounter_ = 0;
@@ -80,6 +87,5 @@ public:
 
 	// Disconnect
 	alignas(64) ULONGLONG disconnectTPS_ = 0;
-	friend class SerialContent;
 };
 

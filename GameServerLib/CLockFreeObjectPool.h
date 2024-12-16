@@ -14,8 +14,7 @@ class CLockFreeObjectPool
 		template<typename... Types>
 		FreeListNode(Types&&... args)
 			:data{ std::forward<Types>(args)... }, metaNext{ 0 }
-		{
-		}
+		{}
 
 		static inline FreeListNode* DataToNode(T* pData) 
 		{

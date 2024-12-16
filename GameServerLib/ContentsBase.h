@@ -1,31 +1,25 @@
 #pragma once
 #include "ThreadMessage.h"
-#include "UpdateBase.h"
 #include "Session.h"
 
 class GameServer;
 
-class IContents
+class ContentsBase
 {
 public:
-	virtual void OnEnter(void* pPlayer) = 0;
-	virtual void OnLeave(void* pPlayer) = 0;
-	virtual void OnRecv(Packet* pPacket, void* pPlayer) = 0;
-	virtual void WorkerHanlePacketAtRecvLoop(Packet* pPacket, Session* pSession) = 0;
+	ContentsBase(const bool bSerial, GameServer* pGameServer)
+		:pGameServer_{ pGameServer }, bSerial_{ bSerial } 
+	{}
 
-};
-
-class ContentsBase : public UpdateBase
-{
-public:
-	ContentsBase(const DWORD tickPerFrame, const HANDLE hCompletionPort, const LONG pqcsLimit, const bool bSerial, GameServer* pNetServer);
 	virtual void OnEnter(void* pPlayer) = 0;
 	virtual void OnLeave(void* pPlayer) = 0;
 	virtual void OnRecv(Packet* pPacket, void* pPlayer) = 0;
 	virtual void WorkerHanlePacketAtRecvLoop(Packet* pPacket, Session* pSession) = 0;
 	virtual void ReleaseSessionPost(Session* pSession) = 0;
-	virtual void RequestFirstEnter(const void* pPlayer) = 0;
+	virtual void RequestFirstEnter(void* pPlayer) = 0;
 	virtual void RequestEnter(const bool bPrevContentsIsSerialize, Session* pSession) = 0;
+	virtual void RegisterLeave(void* pPlayer, int nextContent) = 0;
+
 	static inline void RegisterContents(int contentsType, const ContentsBase* pContent)
 	{
 		if (contentsType >= arrayLength) __debugbreak();
@@ -37,7 +31,7 @@ public:
 		pFirst = pArr_[firstContentType];
 	}
 
-	__forceinline static void FirstEnter(const void* pPlayer)
+	__forceinline static void FirstEnter(void* pPlayer)
 	{
 		const_cast<ContentsBase*>(pFirst)->RequestFirstEnter(pPlayer);
 	}
@@ -47,7 +41,7 @@ public:
 		return pArr_[contentType];
 	}
 
-
+	void ReleaseSession(Session* pSession);
 	static constexpr int arrayLength = 1000;
 	static inline ContentsBase* pArr_[arrayLength];
 	static inline const ContentsBase* pFirst;

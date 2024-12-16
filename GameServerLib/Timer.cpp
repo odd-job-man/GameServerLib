@@ -79,7 +79,7 @@ void Timer::Reigster_UPDATE(UpdateBase* pUpdate)
 
 void Timer::Init()
 {
-    TimerPostOverlapped.why = OVERLAPPED_REASON::POST;
+    TimerPostOverlapped.why = OVERLAPPED_REASON::UPDATE;
 	hThread = (HANDLE)_beginthreadex(nullptr, 0, threadFunc, nullptr, CREATE_SUSPENDED, nullptr);
 }
 

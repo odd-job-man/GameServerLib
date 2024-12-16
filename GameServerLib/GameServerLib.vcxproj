@@ -44,6 +44,7 @@
     <ClInclude Include="ErrType.h" />
     <ClInclude Include="HMonitor.h" />
     <ClInclude Include="IHandler.h" />
+    <ClInclude Include="Monitorable.h" />
     <ClInclude Include="MyJob.h" />
     <ClInclude Include="MYOVERLAPPED.h" />
     <ClInclude Include="GameServer.h" />
