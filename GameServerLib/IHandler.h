@@ -1,6 +1,6 @@
 #pragma once 
 
-struct Session;
+struct GameSession;
 class Packet;
 class SmartPacket;
 class IHandler
@@ -11,7 +11,7 @@ public:
 	virtual void* OnAccept(void* pPlayer) = 0;
 	virtual void OnError(ULONGLONG id, int errorType, Packet* pRcvdPacket) = 0;
 private:
-	virtual BOOL SendPost(Session* pSession) = 0;
-	virtual BOOL RecvPost(Session* pSession) = 0;
-	virtual void ReleaseSession(Session* pSession) = 0;
+	virtual BOOL SendPost(GameSession* pSession) = 0;
+	virtual BOOL RecvPost(GameSession* pSession) = 0;
+	virtual void ReleaseSession(GameSession* pSession) = 0;
 };

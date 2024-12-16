@@ -5,7 +5,7 @@
 
 #include "Monitorable.h"
 
-struct Session;
+struct GameSession;
 class Stack;
 class Packet;
 class SmartPacket;
@@ -38,8 +38,8 @@ private:
 	void ProcessTimeOut();
 	static unsigned __stdcall AcceptThread(LPVOID arg);
 	static unsigned __stdcall IOCPWorkerThread(LPVOID arg);
-	Session* GetSession(const void* pPlayer);
-	void* GetPlayer(const Session* pSession);
+	GameSession* GetSession(const void* pPlayer);
+	void* GetPlayer(const GameSession* pSession);
 public:
 	// Accept
 	const DWORD IOCP_WORKER_THREAD_NUM_ = 0;
@@ -52,7 +52,7 @@ public:
 	const LONG TIME_OUT_MILLISECONDS_ = 0;
 	const ULONGLONG TIME_OUT_CHECK_INTERVAL_ = 0;
 	ULONGLONG ullIdCounter = 0;
-	Session* pSessionArr_;
+	GameSession* pSessionArr_;
 	CLockFreeStack<short> DisconnectStack_;
 	MYOVERLAPPED SendPostFrameOverlapped;
 	MYOVERLAPPED SendWorkerOverlapped;
@@ -64,20 +64,20 @@ public:
 	SOCKET hListenSock_;
 	LONG updateThreadSendCounter_ = 0;
 	void* pPlayerArr_;
-	virtual BOOL RecvPost(Session* pSession);
-	virtual BOOL SendPost(Session* pSession);
-	virtual BOOL SendPostAccum(Session* pSession);
-	void RecvProc(Session* pSession, int numberOfBytesTransferred);
-	void SendProc(Session* pSession, DWORD dwNumberOfBytesTransferred);
-	void SendProcAccum(Session* pSession, DWORD dwNumberOfBytesTransferred);
+	virtual BOOL RecvPost(GameSession* pSession);
+	virtual BOOL SendPost(GameSession* pSession);
+	virtual BOOL SendPostAccum(GameSession* pSession);
+	void RecvProc(GameSession* pSession, int numberOfBytesTransferred);
+	void SendProc(GameSession* pSession, DWORD dwNumberOfBytesTransferred);
+	void SendProcAccum(GameSession* pSession, DWORD dwNumberOfBytesTransferred);
 	void SetEntirePlayerMemory(int MaxPlayerNum, int playerSize);
-	virtual void ReleaseSession(Session* pSession);
+	virtual void ReleaseSession(GameSession* pSession);
 	friend class Packet;
 	friend class SerialContent;
 	friend class ParallelContent;
 	const int bAccSend = 0;
 public:
-	void ReleaseSessionContents(Session* pSession);
+	void ReleaseSessionContents(GameSession* pSession);
 	ULONGLONG acceptCounter_ = 0;
 	alignas(64) ULONGLONG acceptTotal_ = 0;
 	alignas(64) ULONGLONG recvTPS_ = 0;

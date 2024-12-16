@@ -7,10 +7,10 @@
 class Packet;
 class ContentsBase;
 
-struct Session
+struct GameSession
 {
 	static constexpr LONG RELEASE_FLAG = 0x80000000;
-	LINKED_NODE node{ offsetof(Session,node) };
+	LINKED_NODE node{ offsetof(GameSession,node) };
 	void* pPlayer_;
 	ContentsBase* pCurContent;
 	int ReservedNextContent;
@@ -30,8 +30,8 @@ struct Session
 	RingBuffer recvRB_;
 	BOOL Init(SOCKET clientSock, ULONGLONG ullClientID, SHORT shIdx, void* pPlayer);
 
-	Session()
-		:IoCnt_{ Session::RELEASE_FLAG | 0 }
+	GameSession()
+		:IoCnt_{ GameSession::RELEASE_FLAG | 0 }
 	{}
 
 	inline static short GET_SESSION_INDEX(ULONGLONG id)
@@ -41,4 +41,4 @@ struct Session
 
 };
 
-using CSession = const Session;
+using CSession = const GameSession;

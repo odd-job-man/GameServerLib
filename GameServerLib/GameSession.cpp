@@ -3,10 +3,10 @@
 
 #include "RingBuffer.h"
 
-#include "Session.h"
+#include "GameSession.h"
 
 
-BOOL Session::Init(SOCKET clientSock, ULONGLONG ullClientID, SHORT shIdx, void* pPlayer)
+BOOL GameSession::Init(SOCKET clientSock, ULONGLONG ullClientID, SHORT shIdx, void* pPlayer)
 {
     sock_ = clientSock;
     pPlayer_ = pPlayer;

@@ -1,4 +1,5 @@
 #include <WinSock2.h>
+#include "GameServer.h"
 #include "Packet.h"
 #include "ParallelContent.h"
 
@@ -6,7 +7,7 @@ ParallelContent::ParallelContent(GameServer* pGameServer)
 	:ContentsBase{ false,pGameServer }
 {}
 
-void ParallelContent::WorkerHanlePacketAtRecvLoop(Packet * pPacket, Session * pSession)
+void ParallelContent::WorkerHanlePacketAtRecvLoop(Packet * pPacket, GameSession * pSession)
 {
 	pSession->recvMsgQ_.Enqueue(pPacket);
 	Packet* pTargetPacket = pSession->recvMsgQ_.Dequeue().value();
@@ -16,12 +17,12 @@ void ParallelContent::WorkerHanlePacketAtRecvLoop(Packet * pPacket, Session * pS
 
 void ParallelContent::RequestFirstEnter(void* pPlayer)
 {
-	Session* pSession = pGameServer_->GetSession(pPlayer);
+	GameSession* pSession = pGameServer_->GetSession(pPlayer);
 	InterlockedExchangePointer((PVOID*)&pSession->pCurContent, (ContentsBase*)this);
 	OnEnter(pPlayer);
 }
 
-void ParallelContent::RequestEnter(const bool bPrevContentsIsSerialize, Session* pSession)
+void ParallelContent::RequestEnter(const bool bPrevContentsIsSerialize, GameSession* pSession)
 {
 	InterlockedExchangePointer((PVOID*)&pSession->pCurContent, (ContentsBase*)this);
 
@@ -37,7 +38,7 @@ void ParallelContent::RequestEnter(const bool bPrevContentsIsSerialize, Session*
 	OnEnter(pSession->pPlayer_);
 }
 
-void ParallelContent::ReleaseSessionPost(Session* pSession)
+void ParallelContent::ReleaseSessionPost(GameSession* pSession)
 {
 	LONG size = pSession->recvMsgQ_.GetSize();
 	for (LONG i = 0; i < size; ++i)
@@ -55,6 +56,6 @@ void ParallelContent::ReleaseSessionPost(Session* pSession)
 void ParallelContent::RegisterLeave(void* pPlayer, int nextContent)
 {
 	OnLeave(pPlayer);
-	Session* pSession = pGameServer_->GetSession(pPlayer);
+	GameSession* pSession = pGameServer_->GetSession(pPlayer);
 	GetContentsPtr(nextContent)->RequestEnter(bSerial_, pSession);
 }

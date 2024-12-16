@@ -45,7 +45,7 @@
     <ClCompile Include="GameServer.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
-    <ClCompile Include="Session.cpp">
+    <ClCompile Include="GameSession.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
     <ClCompile Include="SerialContent.cpp">
@@ -74,7 +74,7 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="Session.h">
+    <ClInclude Include="GameSession.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
     <ClInclude Include="ErrType.h">

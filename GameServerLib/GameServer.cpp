@@ -4,7 +4,7 @@
 #include <process.h>
 #include "CLockFreeQueue.h"
 #include "RingBuffer.h"
-#include "Session.h"
+#include "GameSession.h"
 #include "Packet.h"
 #include "ErrType.h"
 #include "Logger.h"
@@ -176,7 +176,7 @@ GameServer::GameServer()
 	OnPostOverlapped.why = OVERLAPPED_REASON::POST;
 	SendWorkerOverlapped.why = OVERLAPPED_REASON::SEND_WORKER;
 
-	pSessionArr_ = new Session[maxSession_];
+	pSessionArr_ = new GameSession[maxSession_];
 	for (int i = maxSession_ - 1; i >= 0; --i)
 		DisconnectStack_.Push(i);
 
@@ -185,11 +185,11 @@ GameServer::GameServer()
 
 void GameServer::SendPacket(ULONGLONG id, SmartPacket& sendPacket)
 {
-	Session* pSession = pSessionArr_ + Session::GET_SESSION_INDEX(id);
+	GameSession* pSession = pSessionArr_ + GameSession::GET_SESSION_INDEX(id);
 	long IoCnt = InterlockedIncrement(&pSession->IoCnt_);
 
 	// 이미 RELEASE 진행중이거나 RELEASE된 경우
-	if ((IoCnt & Session::RELEASE_FLAG) == Session::RELEASE_FLAG)
+	if ((IoCnt & GameSession::RELEASE_FLAG) == GameSession::RELEASE_FLAG)
 	{
 		if (InterlockedDecrement(&pSession->IoCnt_) == 0)
 			ReleaseSession(pSession);
@@ -225,11 +225,11 @@ void GameServer::SendPacket(ULONGLONG id, SmartPacket& sendPacket)
 
 void GameServer::SendPacket(ULONGLONG id, Packet* pPacket)
 {
-	Session* pSession = pSessionArr_ + Session::GET_SESSION_INDEX(id);
+	GameSession* pSession = pSessionArr_ + GameSession::GET_SESSION_INDEX(id);
 	long IoCnt = InterlockedIncrement(&pSession->IoCnt_);
 
 	// 이미 RELEASE 진행중이거나 RELEASE된 경우
-	if ((IoCnt & Session::RELEASE_FLAG) == Session::RELEASE_FLAG)
+	if ((IoCnt & GameSession::RELEASE_FLAG) == GameSession::RELEASE_FLAG)
 	{
 		if (InterlockedDecrement(&pSession->IoCnt_) == 0)
 			ReleaseSession(pSession);
@@ -265,11 +265,11 @@ void GameServer::SendPacket(ULONGLONG id, Packet* pPacket)
 
 void GameServer::SendPacket_ALREADY_ENCODED(ULONGLONG id, Packet* pPacket)
 {
-	Session* pSession = pSessionArr_ + Session::GET_SESSION_INDEX(id);
+	GameSession* pSession = pSessionArr_ + GameSession::GET_SESSION_INDEX(id);
 	long IoCnt = InterlockedIncrement(&pSession->IoCnt_);
 
 	// 이미 RELEASE 진행중이거나 RELEASE된 경우
-	if ((IoCnt & Session::RELEASE_FLAG) == Session::RELEASE_FLAG)
+	if ((IoCnt & GameSession::RELEASE_FLAG) == GameSession::RELEASE_FLAG)
 	{
 		if (InterlockedDecrement(&pSession->IoCnt_) == 0)
 			ReleaseSession(pSession);
@@ -302,11 +302,11 @@ void GameServer::SendPacket_ALREADY_ENCODED(ULONGLONG id, Packet* pPacket)
 
 void GameServer::SendPacket_ENQUEUE_ONLY(ULONGLONG id, Packet* pPacket)
 {
-	Session* pSession = pSessionArr_ + Session::GET_SESSION_INDEX(id);
+	GameSession* pSession = pSessionArr_ + GameSession::GET_SESSION_INDEX(id);
 	long IoCnt = InterlockedIncrement(&pSession->IoCnt_);
 
 	// 이미 RELEASE 진행중이거나 RELEASE된 경우
-	if ((IoCnt & Session::RELEASE_FLAG) == Session::RELEASE_FLAG)
+	if ((IoCnt & GameSession::RELEASE_FLAG) == GameSession::RELEASE_FLAG)
 	{
 		if (InterlockedDecrement(&pSession->IoCnt_) == 0)
 			ReleaseSession(pSession);
@@ -330,17 +330,17 @@ void GameServer::SendPacket_ENQUEUE_ONLY(ULONGLONG id, Packet* pPacket)
 
 ULONGLONG GameServer::GetSessionID(const void* pPlayer)
 {
-	int idx = ((ULONG_PTR)pPlayer - (ULONG_PTR)pPlayerArr_) / playerSize_;
-	return ((Session*)(pSessionArr_ + idx))->id_;
+	short idx = (short)(((ULONG_PTR)pPlayer - (ULONG_PTR)pPlayerArr_) / playerSize_);
+	return ((GameSession*)(pSessionArr_ + idx))->id_;
 }
 
 void GameServer::Disconnect(ULONGLONG id)
 {
-	Session* pSession = pSessionArr_ + Session::GET_SESSION_INDEX(id);
+	GameSession* pSession = pSessionArr_ + GameSession::GET_SESSION_INDEX(id);
 	long IoCnt = InterlockedIncrement(&pSession->IoCnt_);
 
 	// RELEASE진행중 혹은 진행완료
-	if ((IoCnt & Session::RELEASE_FLAG) == Session::RELEASE_FLAG)
+	if ((IoCnt & GameSession::RELEASE_FLAG) == GameSession::RELEASE_FLAG)
 	{
 		if (InterlockedDecrement(&pSession->IoCnt_) == 0)
 			ReleaseSession(pSession);
@@ -378,7 +378,7 @@ void GameServer::ProcessTimeOut()
 	{
 		ULONGLONG sessionId = pSessionArr_[i].id_;
 
-		if ((pSessionArr_[i].IoCnt_ & Session::RELEASE_FLAG) == Session::RELEASE_FLAG)
+		if ((pSessionArr_[i].IoCnt_ & GameSession::RELEASE_FLAG) == GameSession::RELEASE_FLAG)
 			continue;
 
 		if (currentTime < pSessionArr_[i].lastRecvTime + TIME_OUT_MILLISECONDS_)
@@ -398,11 +398,11 @@ void GameServer::SendPostPerFrame_IMPL(LONG* pCounter)
 		if (idx >= maxSession_)
 			break;
 
-		Session* pSession = pSessionArr_ + idx;
+		GameSession* pSession = pSessionArr_ + idx;
 		long IoCnt = InterlockedIncrement(&pSession->IoCnt_);
 
 		// 이미 RELEASE 진행중이거나 RELEASE된 경우
-		if ((IoCnt & Session::RELEASE_FLAG) == Session::RELEASE_FLAG)
+		if ((IoCnt & GameSession::RELEASE_FLAG) == GameSession::RELEASE_FLAG)
 		{
 			if (InterlockedDecrement(&pSession->IoCnt_) == 0)
 				ReleaseSession(pSession);
@@ -462,14 +462,14 @@ unsigned __stdcall GameServer::AcceptThread(LPVOID arg)
 		InterlockedIncrement((LONG*)&pGameServer->lSessionNum_);
 
 		short idx = pGameServer->DisconnectStack_.Pop().value();
-		Session* pSession = pGameServer->pSessionArr_ + idx;
+		GameSession* pSession = pGameServer->pSessionArr_ + idx;
 		pSession->Init(clientSock, pGameServer->ullIdCounter, idx, GetPlayerPtr(idx));
 
 		CreateIoCompletionPort((HANDLE)pSession->sock_, pGameServer->hcp_, (ULONG_PTR)pSession, 0);
 		++pGameServer->ullIdCounter;
 
 		InterlockedIncrement(&pSession->IoCnt_);
-		InterlockedAnd(&pSession->IoCnt_, ~Session::RELEASE_FLAG);
+		InterlockedAnd(&pSession->IoCnt_, ~GameSession::RELEASE_FLAG);
 
 		pGameServer->OnAccept(pSession->pPlayer_);
 		pGameServer->RecvPost(pSession);
@@ -487,7 +487,7 @@ unsigned __stdcall GameServer::IOCPWorkerThread(LPVOID arg)
 	{
 		MYOVERLAPPED* pOverlapped = nullptr;
 		DWORD dwNOBT = 0;
-		Session* pSession = nullptr;
+		GameSession* pSession = nullptr;
 		bool bContinue = false;
 		BOOL bGQCSRet = GetQueuedCompletionStatus(pNetServer->hcp_, &dwNOBT, (PULONG_PTR)&pSession, (LPOVERLAPPED*)&pOverlapped, INFINITE);
 		do
@@ -556,18 +556,18 @@ unsigned __stdcall GameServer::IOCPWorkerThread(LPVOID arg)
 	return 0;
 }
 
-Session* GameServer::GetSession(const void* pPlayer)
+GameSession* GameServer::GetSession(const void* pPlayer)
 {
-	int idx = ((ULONG_PTR)pPlayer - (ULONG_PTR)(pPlayerArr_)) / playerSize_;
+	short idx = (short)(((ULONG_PTR)pPlayer - (ULONG_PTR)(pPlayerArr_)) / playerSize_);
 	return pSessionArr_ + idx;
 }
 
-void* GameServer::GetPlayer(const Session* pSession)
+void* GameServer::GetPlayer(const GameSession* pSession)
 {
 	return (void*)((char*)pPlayerArr_ + playerSize_ * (pSession - pSessionArr_));
 }
 
-BOOL GameServer::RecvPost(Session* pSession)
+BOOL GameServer::RecvPost(GameSession* pSession)
 {
 	WSABUF wsa[2];
 	wsa[0].buf = pSession->recvRB_.GetWriteStartPtr();
@@ -603,7 +603,7 @@ BOOL GameServer::RecvPost(Session* pSession)
 	return TRUE;
 }
 
-BOOL GameServer::SendPost(Session* pSession)
+BOOL GameServer::SendPost(GameSession* pSession)
 {
 	DWORD dwBufferNum;
 	while (1)
@@ -667,7 +667,7 @@ BOOL GameServer::SendPost(Session* pSession)
 	return TRUE;
 }
 
-BOOL GameServer::SendPostAccum(Session* pSession)
+BOOL GameServer::SendPostAccum(GameSession* pSession)
 {
 	DWORD dwBufferNum;
 	while (1)
@@ -730,9 +730,9 @@ BOOL GameServer::SendPostAccum(Session* pSession)
 	return TRUE;
 }
 
-void GameServer::ReleaseSession(Session* pSession) 
+void GameServer::ReleaseSession(GameSession* pSession) 
 {
-	if (InterlockedCompareExchange(&pSession->IoCnt_, Session::RELEASE_FLAG | 0, 0) != 0)
+	if (InterlockedCompareExchange(&pSession->IoCnt_, GameSession::RELEASE_FLAG | 0, 0) != 0)
 		return;
 
 	// Release 될 Session의 직렬화 버퍼 정리
@@ -759,7 +759,7 @@ void GameServer::ReleaseSession(Session* pSession)
 	pSession->pCurContent->ReleaseSessionPost(pSession);
 }
 
-void GameServer::ReleaseSessionContents(Session* pSession) 
+void GameServer::ReleaseSessionContents(GameSession* pSession) 
 {
 	LONG size = pSession->recvMsgQ_.GetSize();
 	for (LONG i = 0; i < size; ++i)
@@ -773,7 +773,7 @@ void GameServer::ReleaseSessionContents(Session* pSession)
 	InterlockedDecrement(&lSessionNum_);
 }
 
-void GameServer::RecvProc(Session* pSession, int numberOfBytesTransferred)
+void GameServer::RecvProc(GameSession* pSession, int numberOfBytesTransferred)
 {
 	using NetHeader = Packet::NetHeader;
 	pSession->recvRB_.MoveInPos(numberOfBytesTransferred);
@@ -821,7 +821,7 @@ void GameServer::RecvProc(Session* pSession, int numberOfBytesTransferred)
 	RecvPost(pSession);
 }
 
-void GameServer::SendProc(Session* pSession, DWORD dwNumberOfBytesTransferred)
+void GameServer::SendProc(GameSession* pSession, DWORD dwNumberOfBytesTransferred)
 {
 	LONG sendBufNum = InterlockedExchange(&pSession->lSendBufNum_, 0);
 	for (LONG i = 0; i < sendBufNum; ++i)
@@ -837,7 +837,7 @@ void GameServer::SendProc(Session* pSession, DWORD dwNumberOfBytesTransferred)
 	SendPost(pSession);
 }
 
-void GameServer::SendProcAccum(Session* pSession, DWORD dwNumberOfBytesTransferred)
+void GameServer::SendProcAccum(GameSession* pSession, DWORD dwNumberOfBytesTransferred)
 {
 	LONG sendBufNum = InterlockedExchange(&pSession->lSendBufNum_, 0);
 	for (LONG i = 0; i < sendBufNum; ++i)

@@ -1,18 +1,19 @@
 #include <WinSock2.h>
+#include "GameServer.h"
 #include "SerialContent.h"
 
 SerialContent::SerialContent(const DWORD tickPerFrame, const HANDLE hCompletionPort, const LONG pqcsLimit, GameServer* pGameServer)
-	:UpdateBase{ tickPerFrame,hCompletionPort,pqcsLimit }, ContentsBase{ true,pGameServer }, sessionList{ offsetof(Session,node) }
+	:UpdateBase{ tickPerFrame,hCompletionPort,pqcsLimit }, ContentsBase{ true,pGameServer }, sessionList{ offsetof(GameSession,node) }
 {}
 
-void SerialContent::WorkerHanlePacketAtRecvLoop(Packet * pPacket, Session * pSession)
+void SerialContent::WorkerHanlePacketAtRecvLoop(Packet * pPacket, GameSession * pSession)
 {
 	pSession->recvMsgQ_.Enqueue(pPacket);
 }
 
 void SerialContent::RequestFirstEnter(void* pPlayer)
 {
-	Session* pSession = pGameServer_->GetSession(pPlayer);
+	GameSession* pSession = pGameServer_->GetSession(pPlayer);
 	InterlockedIncrement(&pSession->IoCnt_);
 	InterlockedExchangePointer((PVOID*)&pSession->pCurContent, (ContentsBase*)this);
 	msgQ_.Enqueue(SerialContent::pool_.Alloc(en_MsgType::ENTER, pSession));
@@ -32,18 +33,18 @@ void SerialContent::Update_IMPL()
 void SerialContent::RegisterLeave(void* pPlayer, int nextContent)
 {
 	// 일단 Release잡 들어오는거 막기위해 IoCnt 물고잇음
-	Session* pSession = pGameServer_->GetSession(pPlayer);
+	GameSession* pSession = pGameServer_->GetSession(pPlayer);
 	LONG IoCnt = InterlockedIncrement(&pSession->IoCnt_);
 
 	// 이미 락프리큐에 RELEASE 잡이 와잇을것임
-	if ((IoCnt & Session::RELEASE_FLAG) == Session::RELEASE_FLAG)
+	if ((IoCnt & GameSession::RELEASE_FLAG) == GameSession::RELEASE_FLAG)
 		return;
 
 	pSession->ReservedNextContent = nextContent;
 	delayedLeaveStack.push(pSession);
 }
 
-void SerialContent::RequestEnter(const bool bPrevContentsIsSerialize, Session* pSession)
+void SerialContent::RequestEnter(const bool bPrevContentsIsSerialize, GameSession* pSession)
 {
 	// 로비등의 직렬화 안되던 컨텐츠
 	if (!bPrevContentsIsSerialize)
@@ -53,7 +54,7 @@ void SerialContent::RequestEnter(const bool bPrevContentsIsSerialize, Session* p
 	msgQ_.Enqueue(SerialContent::pool_.Alloc(en_MsgType::ENTER, pSession));
 }
 
-void SerialContent::ReleaseSessionPost(Session* pSession)
+void SerialContent::ReleaseSessionPost(GameSession* pSession)
 {
 	msgQ_.Enqueue(SerialContent::pool_.Alloc(en_MsgType::RELEASE, pSession));
 }
@@ -67,7 +68,7 @@ void SerialContent::FlushInterContentsMsgQ()
 			break;
 
 		InterContentsMessage* pMsg = opt.value();
-		Session* pSession = pMsg->pSession_;
+		GameSession* pSession = pMsg->pSession_;
 		void* pPlayer = pSession->pPlayer_;
 
 		switch (pMsg->msgType_)
@@ -112,7 +113,7 @@ void SerialContent::FlushInterContentsMsgQ()
 
 void SerialContent::FlushSessionRecvMsgQ()
 {
-	Session* pSession = (Session*)sessionList.GetFirst();
+	GameSession* pSession = (GameSession*)sessionList.GetFirst();
 	while (pSession)
 	{
 		while (1)
@@ -126,7 +127,7 @@ void SerialContent::FlushSessionRecvMsgQ()
 			PACKET_FREE(pPacket);
 
 		}
-		pSession = (Session*)sessionList.GetNext(pSession);
+		pSession = (GameSession*)sessionList.GetNext(pSession);
 	}
 }
 
@@ -134,7 +135,7 @@ void SerialContent::FlushLeaveStack()
 {
 	while (!delayedLeaveStack.empty())
 	{
-		Session* pSession = delayedLeaveStack.top();
+		GameSession* pSession = delayedLeaveStack.top();
 		OnLeave(pSession->pPlayer_);
 		sessionList.remove(pSession);
 		GetContentsPtr(pSession->ReservedNextContent)->RequestEnter(bSerial_, pSession);

@@ -1,9 +1,10 @@
 #include <WinSock2.h>
+#include "GameServer.h"
 #include "ContentsBase.h"
 
-void ContentsBase::ReleaseSession(Session* pSession)
+void ContentsBase::ReleaseSession(GameSession* pSession)
 {
-	if (InterlockedCompareExchange(&pSession->IoCnt_, Session::RELEASE_FLAG | 0, 0) != 0)
+	if (InterlockedCompareExchange(&pSession->IoCnt_, GameSession::RELEASE_FLAG | 0, 0) != 0)
 		return;
 
 	// Release 될 Session의 직렬화 버퍼 정리

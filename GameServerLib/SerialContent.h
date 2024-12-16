@@ -13,10 +13,10 @@ public:
 	virtual void ProcessEachPlayer() = 0;
 
 	// ContentBase overriding
-	virtual void WorkerHanlePacketAtRecvLoop(Packet* pPacket, Session* pSession) override;
+	virtual void WorkerHanlePacketAtRecvLoop(Packet* pPacket, GameSession* pSession) override;
 	virtual void RequestFirstEnter(void* pPlayer) override;
-	virtual void RequestEnter(const bool bPrevContentsIsSerialize, Session* pSession) override;
-	virtual void ReleaseSessionPost(Session* pSession) override;
+	virtual void RequestEnter(const bool bPrevContentsIsSerialize, GameSession* pSession) override;
+	virtual void ReleaseSessionPost(GameSession* pSession) override;
 	virtual void RegisterLeave(void* pPlayer, int nextContent) override;
 
 	// UpdateBase overriding;
@@ -29,5 +29,5 @@ private:
 	CLockFreeQueue<InterContentsMessage*> msgQ_;
 	static inline CTlsObjectPool<InterContentsMessage, true> pool_;
 	CLinkedList sessionList;
-	std::stack<Session*> delayedLeaveStack;
+	std::stack<GameSession*> delayedLeaveStack;
 };
