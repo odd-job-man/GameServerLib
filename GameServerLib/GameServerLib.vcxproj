@@ -19,45 +19,56 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="CLinkedList.cpp" />
+    <ClCompile Include="..\..\ServerCommon\ServerCommon\DataStructure\CLinkedList.cpp" />
+    <ClCompile Include="..\..\ServerCommon\ServerCommon\Monitor\HMonitor.cpp" />
+    <ClCompile Include="..\..\ServerCommon\ServerCommon\NetWork\RingBuffer.cpp" />
+    <ClCompile Include="..\..\ServerCommon\ServerCommon\UpdateAndTimer\Timer.cpp" />
+    <ClCompile Include="..\..\ServerCommon\ServerCommon\UpdateAndTimer\UpdateBase.cpp" />
     <ClCompile Include="ContentsBase.cpp" />
-    <ClCompile Include="HMonitor.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="GameServer.cpp" />
     <ClCompile Include="ParallelContent.cpp" />
-    <ClCompile Include="RingBuffer.cpp" />
     <ClCompile Include="SerialContent.cpp" />
     <ClCompile Include="Session.cpp" />
-    <ClCompile Include="Timer.cpp" />
-    <ClCompile Include="UpdateBase.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="Assert.h" />
-    <ClInclude Include="CAddressTranslator.h" />
-    <ClInclude Include="CLinkedList.h" />
-    <ClInclude Include="CLockFreeObjectPool.h" />
-    <ClInclude Include="CLockFreeQueue.h" />
-    <ClInclude Include="CLockFreeStack.h" />
+    <ClInclude Include="..\..\ServerCommon\ServerCommon\Assert.h" />
+    <ClInclude Include="..\..\ServerCommon\ServerCommon\DataStructure\CAddressTranslator.h" />
+    <ClInclude Include="..\..\ServerCommon\ServerCommon\DataStructure\CLinkedList.h" />
+    <ClInclude Include="..\..\ServerCommon\ServerCommon\DataStructure\CLockFreeObjectPool.h" />
+    <ClInclude Include="..\..\ServerCommon\ServerCommon\DataStructure\CLockFreeQueue.h" />
+    <ClInclude Include="..\..\ServerCommon\ServerCommon\DataStructure\CLockFreeStack.h" />
+    <ClInclude Include="..\..\ServerCommon\ServerCommon\DataStructure\CTlsObjectPool.h" />
+    <ClInclude Include="..\..\ServerCommon\ServerCommon\Job\MyJob.h" />
+    <ClInclude Include="..\..\ServerCommon\ServerCommon\Logger\Logger.h" />
+    <ClInclude Include="..\..\ServerCommon\ServerCommon\Monitor\HMonitor.h" />
+    <ClInclude Include="..\..\ServerCommon\ServerCommon\Monitor\Monitorable.h" />
+    <ClInclude Include="..\..\ServerCommon\ServerCommon\MYOVERLAPPED.h" />
+    <ClInclude Include="..\..\ServerCommon\ServerCommon\NetWork\Packet.h" />
+    <ClInclude Include="..\..\ServerCommon\ServerCommon\NetWork\RingBuffer.h" />
+    <ClInclude Include="..\..\ServerCommon\ServerCommon\Parser\Parser.h" />
+    <ClInclude Include="..\..\ServerCommon\ServerCommon\UpdateAndTimer\Timer.h" />
+    <ClInclude Include="..\..\ServerCommon\ServerCommon\UpdateAndTimer\UpdateBase.h" />
     <ClInclude Include="ContentsBase.h" />
     <ClInclude Include="ContentsType.h" />
-    <ClInclude Include="CTlsObjectPool.h" />
     <ClInclude Include="ErrType.h" />
-    <ClInclude Include="HMonitor.h" />
     <ClInclude Include="IHandler.h" />
-    <ClInclude Include="Monitorable.h" />
     <ClInclude Include="MyJob.h" />
     <ClInclude Include="MYOVERLAPPED.h" />
     <ClInclude Include="GameServer.h" />
-    <ClInclude Include="Packet.h" />
     <ClInclude Include="ParallelContent.h" />
-    <ClInclude Include="Parser.h" />
     <ClInclude Include="PlayerBase.h" />
-    <ClInclude Include="RingBuffer.h" />
     <ClInclude Include="SerialContent.h" />
     <ClInclude Include="Session.h" />
     <ClInclude Include="ThreadMessage.h" />
-    <ClInclude Include="Timer.h" />
-    <ClInclude Include="UpdateBase.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <Library Include="..\..\ServerCommon\ServerCommon\Logger\LoggerMT.lib" />
+    <Library Include="..\..\ServerCommon\ServerCommon\Parser\TextParser.lib" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\..\ServerCommon\ServerCommon\Logger\LoggerMT.dll" />
+    <None Include="..\..\ServerCommon\ServerCommon\Parser\TextParser.dll" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
@@ -161,6 +172,8 @@
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
+      <Optimization>Disabled</Optimization>
+      <AdditionalIncludeDirectories>C:\Users\dhtmd\OneDrive\문서\GitHub\ServerCommon\ServerCommon\UpdateAndTimer;C:\Users\dhtmd\OneDrive\문서\GitHub\ServerCommon\ServerCommon\Parser;C:\Users\dhtmd\OneDrive\문서\GitHub\ServerCommon\ServerCommon\NetWork;C:\Users\dhtmd\OneDrive\문서\GitHub\ServerCommon\ServerCommon\Monitor;C:\Users\dhtmd\OneDrive\문서\GitHub\ServerCommon\ServerCommon\Logger;C:\Users\dhtmd\OneDrive\문서\GitHub\ServerCommon\ServerCommon\DataStructure;C:\Users\dhtmd\OneDrive\문서\GitHub\ServerCommon\ServerCommon;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
