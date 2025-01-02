@@ -21,13 +21,14 @@
 
 #define GetPlayerPtr(idx) ((void*)((char*)(pGameServer->pPlayerArr_) + pGameServer->playerSize_ * idx))
 
-GameServer::GameServer()
+GameServer::GameServer(const WCHAR* pConfigTxt)
+	:hShutDownEvent_{ CreateEvent(NULL,FALSE,FALSE,NULL) }
 {
 	timeBeginPeriod(1);
 	std::locale::global(std::locale(""));
 	char* pStart;
 	char* pEnd;
-	PARSER psr = CreateParser(L"ServerConfig.txt");
+	PARSER psr = CreateParser(pConfigTxt);
 
 	WCHAR ipStr[16];
 	GetValue(psr, L"BIND_IP", (PVOID*)&pStart, (PVOID*)&pEnd);
@@ -68,6 +69,12 @@ GameServer::GameServer()
 
 	GetValue(psr, L"bAccSend", (PVOID*)&pStart, nullptr);
 	*((int*)(&bAccSend)) = (int)_wtoi((LPCWSTR)pStart);
+
+	if (bAccSend == 1)
+	{
+		GetValue(psr, L"SEND_INTERVAL", (PVOID*)&pStart, nullptr);
+		SEND_INTERVAL = (DWORD)_wtoi((LPCWSTR)pStart);
+	}
 
 	GetValue(psr, L"USER_MAX", (PVOID*)&pStart, nullptr);
 	*((LONG*)&maxPlayer_) = (int)_wtoi((LPCWSTR)pStart);
@@ -172,15 +179,22 @@ GameServer::GameServer()
 
 
 	SendPostFrameOverlapped.why = OVERLAPPED_REASON::SEND_POST_FRAME;
-	SendPostEndEvent_ = CreateEvent(NULL, FALSE, FALSE, NULL);
+	hSendPostEndEvent_ = CreateEvent(NULL, FALSE, FALSE, NULL);
 	OnPostOverlapped.why = OVERLAPPED_REASON::POST;
 	SendWorkerOverlapped.why = OVERLAPPED_REASON::SEND_WORKER;
 
 	pSessionArr_ = new GameSession[maxSession_];
+	pSockAddrInArr_ = new SOCKADDR_IN[maxSession_];
 	for (int i = maxSession_ - 1; i >= 0; --i)
 		DisconnectStack_.Push(i);
 
-	Timer::Init();
+	if (bAccSend == 1)
+		pSendThread_ = new SendThread{ SEND_INTERVAL,hcp_,3,this };
+
+	Scheduler::Init();
+
+	if (bAccSend == 1)
+		Scheduler::Register_UPDATE(static_cast<UpdateBase*>(pSendThread_));
 }
 
 void GameServer::SendPacket(ULONGLONG id, SmartPacket& sendPacket)
@@ -209,15 +223,6 @@ void GameServer::SendPacket(ULONGLONG id, SmartPacket& sendPacket)
 	sendPacket->IncreaseRefCnt();
 	pSession->sendPacketQ_.Enqueue(sendPacket.GetPacket());
 	SendPost(pSession);
-
-	//if (pSession->bSendingInProgress_ == FALSE)
-	//{
-	//	if (InterlockedExchange((LONG*)&pSession->bSendingAtWorker_, TRUE) == FALSE)
-	//	{
-	//		InterlockedIncrement(&pSession->IoCnt_);
-	//		PostQueuedCompletionStatus(hcp_, 1, (ULONG_PTR)pSession, (LPOVERLAPPED)&SendWorkerOverlapped);
-	//	}
-	//}
 
 	if (InterlockedDecrement(&pSession->IoCnt_) == 0)
 		ReleaseSession(pSession);
@@ -249,15 +254,6 @@ void GameServer::SendPacket(ULONGLONG id, Packet* pPacket)
 	pPacket->IncreaseRefCnt();
 	pSession->sendPacketQ_.Enqueue(pPacket);
 
-	//if (pSession->bSendingInProgress_ == FALSE)
-	//{
-	//	if (InterlockedExchange((LONG*)&pSession->bSendingAtWorker_, TRUE) == FALSE)
-	//	{
-	//		InterlockedIncrement(&pSession->IoCnt_);
-	//		PostQueuedCompletionStatus(hcp_, 1, (ULONG_PTR)pSession, (LPOVERLAPPED)&SendWorkerOverlapped);
-	//	}
-	//}
-
 	SendPost(pSession);
 	if (InterlockedDecrement(&pSession->IoCnt_) == 0)
 		ReleaseSession(pSession);
@@ -286,14 +282,6 @@ void GameServer::SendPacket_ALREADY_ENCODED(ULONGLONG id, Packet* pPacket)
 
 	pPacket->IncreaseRefCnt();
 	pSession->sendPacketQ_.Enqueue(pPacket);
-	//if (pSession->bSendingInProgress_ == FALSE)
-	//{
-	//	if (InterlockedExchange((LONG*)&pSession->bSendingAtWorker_, TRUE) == FALSE)
-	//	{
-	//		InterlockedIncrement(&pSession->IoCnt_);
-	//		PostQueuedCompletionStatus(hcp_, 1, (ULONG_PTR)pSession, (LPOVERLAPPED)&SendWorkerOverlapped);
-	//	}
-	//}
 
 	SendPost(pSession);
 	if (InterlockedDecrement(&pSession->IoCnt_) == 0)
@@ -328,10 +316,80 @@ void GameServer::SendPacket_ENQUEUE_ONLY(ULONGLONG id, Packet* pPacket)
 		ReleaseSession(pSession);
 }
 
+void GameServer::WaitUntilShutDown()
+{
+	WaitForSingleObject(hShutDownEvent_, INFINITE);
+	ShutDown();
+}
+
+void GameServer::ShutDown()
+{
+	// 워커스레드에서 호출한경우 안됨, 워커에서는 RequestShutDown을 호출해야함
+	HANDLE hDebug = GetCurrentThread();
+	for (DWORD i = 0; i < IOCP_WORKER_THREAD_NUM_; ++i)
+	{
+		if (hIOCPWorkerThreadArr_[i] == hDebug)
+		{
+			LOG(L"ERROR", ERR, CONSOLE, L"WORKER Call Shutdown Must Have To Call RequestShutDown", Packet::packetPool_.capacity_, Packet::packetPool_.size_);
+			LOG(L"ERROR", ERR, TEXTFILE, L"WORKER Call Shutdown Must Have To Call RequestShutDown", Packet::packetPool_.capacity_, Packet::packetPool_.size_);
+			__debugbreak();
+		}
+	}
+	// 리슨소켓을 닫아서 Accept를 막는다
+	closesocket(hListenSock_);
+	WaitForSingleObject(hAcceptThread_, INFINITE);
+	CloseHandle(hAcceptThread_);
+
+	//세션 0될때까지 돌린다
+	while (InterlockedXor(&lSessionNum_, 0) != 0)
+	{
+		for (int i = 0; i < maxSession_; ++i)
+		{
+			CancelIoEx((HANDLE)pSessionArr_[i].sock_, nullptr);
+			InterlockedExchange((LONG*)&pSessionArr_[i].bDisconnectCalled_, TRUE);
+		}
+	}
+
+	// 더이상 PQCS는 들어오지 않으므로 UpdateBase* 를 PQCS로 쏘는것을 막기위해 Timer스레드를 제거한다
+	Scheduler::Release_SchedulerThread();
+
+	// 마지막 DB등에 대한 잔여분을 처리할 PQCS등을 여기서 쏜다
+	OnLastTaskBeforeAllWorkerThreadEndBeforeShutDown();
+
+	// 워커스레드를 종료하기위한 PQCS를 쏘고 대기한다
+	for (DWORD i = 0; i < IOCP_WORKER_THREAD_NUM_; ++i)
+		PostQueuedCompletionStatus(hcp_, 0, 0, 0);
+
+	WaitForMultipleObjects(IOCP_WORKER_THREAD_NUM_, hIOCPWorkerThreadArr_, TRUE, INFINITE);
+
+	CloseHandle(hcp_);
+	for (DWORD i = 0; i < IOCP_WORKER_THREAD_NUM_; ++i)
+		CloseHandle(hIOCPWorkerThreadArr_[i]);
+	delete[] pSessionArr_;
+	delete[] pSockAddrInArr_;
+	CloseHandle(hSendPostEndEvent_);
+	CloseHandle(hShutDownEvent_);
+
+	if (bAccSend == 1)
+		delete pSendThread_;
+	OnResourceCleanAtShutDown();
+}
+
+void GameServer::RequestShutDown()
+{
+	SetEvent(hShutDownEvent_);
+}
+
 ULONGLONG GameServer::GetSessionID(const void* pPlayer)
 {
 	short idx = (short)(((ULONG_PTR)pPlayer - (ULONG_PTR)pPlayerArr_) / playerSize_);
 	return ((GameSession*)(pSessionArr_ + idx))->id_;
+}
+
+const SOCKADDR_IN* GameServer::GetSockAddrIn(const void* pPlayer)
+{
+	short idx = (short)(((ULONG_PTR)pPlayer - (ULONG_PTR)pPlayerArr_) / playerSize_);
+	return pSockAddrInArr_ + idx;
 }
 
 void GameServer::Disconnect(ULONGLONG id)
@@ -388,47 +446,7 @@ void GameServer::ProcessTimeOut()
 	}
 }
 
-void GameServer::SendPostPerFrame_IMPL(LONG* pCounter)
-{
-	static LONG Cnt = 0;
 
-	while(true)
-	{
-		LONG idx = InterlockedIncrement(&Cnt) - 1;
-		if (idx >= maxSession_)
-			break;
-
-		GameSession* pSession = pSessionArr_ + idx;
-		long IoCnt = InterlockedIncrement(&pSession->IoCnt_);
-
-		// 이미 RELEASE 진행중이거나 RELEASE된 경우
-		if ((IoCnt & GameSession::RELEASE_FLAG) == GameSession::RELEASE_FLAG)
-		{
-			if (InterlockedDecrement(&pSession->IoCnt_) == 0)
-				ReleaseSession(pSession);
-			continue;
-		}
-
-		SendPostAccum(pSession);
-
-		if (InterlockedDecrement(&pSession->IoCnt_) == 0)
-			ReleaseSession(pSession);
-	}
-
-	if (InterlockedDecrement(&updateThreadSendCounter_) == 0)
-	{
-		InterlockedExchange(&Cnt, 0);
-		SetEvent(SendPostEndEvent_);
-	}
-}
-
-void GameServer::SendPostPerFrame()
-{
-	updateThreadSendCounter_ = 1;
-	for(int i = 0; i < 2; ++i)
-		PostQueuedCompletionStatus(hcp_, 1, 1, (LPOVERLAPPED)&SendPostFrameOverlapped);
-	WaitForSingleObject(SendPostEndEvent_, INFINITE);
-}
 
 unsigned __stdcall GameServer::AcceptThread(LPVOID arg)
 {
@@ -453,7 +471,7 @@ unsigned __stdcall GameServer::AcceptThread(LPVOID arg)
 			return 0;
 		}
 
-		if (!pGameServer->OnConnectionRequest())
+		if (!pGameServer->OnConnectionRequest(&clientAddr))
 		{
 			closesocket(clientSock);
 			continue;
@@ -464,6 +482,7 @@ unsigned __stdcall GameServer::AcceptThread(LPVOID arg)
 		short idx = pGameServer->DisconnectStack_.Pop().value();
 		GameSession* pSession = pGameServer->pSessionArr_ + idx;
 		pSession->Init(clientSock, pGameServer->ullIdCounter, idx, GetPlayerPtr(idx));
+		memcpy(pGameServer->pSockAddrInArr_ + idx, &clientAddr, sizeof(SOCKADDR_IN));
 
 		CreateIoCompletionPort((HANDLE)pSession->sock_, pGameServer->hcp_, (ULONG_PTR)pSession, 0);
 		++pGameServer->ullIdCounter;
@@ -518,7 +537,6 @@ unsigned __stdcall GameServer::IOCPWorkerThread(LPVOID arg)
 				break;
 
 			case OVERLAPPED_REASON::SEND_POST_FRAME:
-				pNetServer->SendPostPerFrame_IMPL((LONG*)pSession);
 				bContinue = true;
 				break;
 
@@ -539,6 +557,16 @@ unsigned __stdcall GameServer::IOCPWorkerThread(LPVOID arg)
 			case OVERLAPPED_REASON::SEND_WORKER:
 				pNetServer->SendPost(pSession);
 				InterlockedExchange((LONG*)&pSession->bSendingAtWorker_, FALSE);
+				break;
+
+			case OVERLAPPED_REASON::CONNECT: // 안씀
+				break;
+
+			case OVERLAPPED_REASON::DISCONNECT: // 안씀
+				break;
+
+			case OVERLAPPED_REASON::DB_WRITE:
+				bContinue = true;
 				break;
 
 			default:
@@ -632,7 +660,9 @@ BOOL GameServer::SendPost(GameSession* pSession)
 	DWORD i;
 	for (i = 0; i < 50 && i < dwBufferNum; ++i)
 	{
+#pragma warning(disable : 26815)
 		Packet* pPacket = pSession->sendPacketQ_.Dequeue().value();
+#pragma warning(default : 26815)
 		wsa[i].buf = (char*)pPacket->pBuffer_;
 		wsa[i].len = pPacket->GetUsedDataSize() + sizeof(Packet::NetHeader);
 		pSession->pSendPacketArr_[i] = pPacket;
@@ -759,20 +789,6 @@ void GameServer::ReleaseSession(GameSession* pSession)
 	pSession->pCurContent->ReleaseSessionPost(pSession);
 }
 
-void GameServer::ReleaseSessionContents(GameSession* pSession) 
-{
-	LONG size = pSession->recvMsgQ_.GetSize();
-	for (LONG i = 0; i < size; ++i)
-	{
-		Packet* pPacket = pSession->recvMsgQ_.Dequeue().value();
-		PACKET_FREE(pPacket);
-	}
-
-	DisconnectStack_.Push((short)(pSession - pSessionArr_));
-	InterlockedIncrement(&disconnectTPS_);
-	InterlockedDecrement(&lSessionNum_);
-}
-
 void GameServer::RecvProc(GameSession* pSession, int numberOfBytesTransferred)
 {
 	using NetHeader = Packet::NetHeader;
@@ -848,13 +864,11 @@ void GameServer::SendProcAccum(GameSession* pSession, DWORD dwNumberOfBytesTrans
 			PACKET_FREE(pPacket);
 		}
 	}
-
 	InterlockedExchange((LONG*)&pSession->bSendingInProgress_, FALSE);
 }
 
-void GameServer::SetEntirePlayerMemory(int MaxPlayerNum, int playerSize)
+void GameServer::SetEntirePlayerMemory(int playerSize)
 {
-	lPlayerNum_ = MaxPlayerNum;
 	playerSize_ = playerSize;
 	pPlayerArr_ = malloc(playerSize * maxSession_);
 }
@@ -867,8 +881,3 @@ void GameServer::SENDPACKET(ULONGLONG id, SmartPacket& sendPacket)
 		SendPacket(id, sendPacket.GetPacket());
 }
 
-void GameServer::SEND_POST_PER_FRAME()
-{
-	if (bAccSend == 1)
-		SendPostPerFrame();
-}

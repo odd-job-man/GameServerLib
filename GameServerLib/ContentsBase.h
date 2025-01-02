@@ -41,11 +41,11 @@ public:
 		return pArr_[contentType];
 	}
 
-	void ReleaseSession(GameSession* pSession);
+	void ReleaseSession_AT_ONCE_NOT_CALL_ONLEAVE_ONRELEASE(GameSession* pSession);
 	static constexpr int arrayLength = 1000;
 	static inline ContentsBase* pArr_[arrayLength];
 	static inline const ContentsBase* pFirst;
+	friend class GameServer;
 	GameServer* pGameServer_;
 	const bool bSerial_;
-	friend class GameServer;
 };

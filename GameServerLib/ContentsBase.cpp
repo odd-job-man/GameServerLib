@@ -1,8 +1,8 @@
 #include <WinSock2.h>
-#include "GameServer.h"
 #include "ContentsBase.h"
+#include "GameServer.h"
 
-void ContentsBase::ReleaseSession(GameSession* pSession)
+void ContentsBase::ReleaseSession_AT_ONCE_NOT_CALL_ONLEAVE_ONRELEASE(GameSession* pSession)
 {
 	if (InterlockedCompareExchange(&pSession->IoCnt_, GameSession::RELEASE_FLAG | 0, 0) != 0)
 		return;

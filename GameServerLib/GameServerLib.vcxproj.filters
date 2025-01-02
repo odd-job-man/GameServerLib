@@ -72,6 +72,9 @@
     <ClCompile Include="..\..\ServerCommon\ServerCommon\UpdateAndTimer\Timer.cpp">
       <Filter>ServerCommon\UpdateAndTimer</Filter>
     </ClCompile>
+    <ClCompile Include="SendThread.cpp">
+      <Filter>ServerCommon</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="GameSession.h">
@@ -86,9 +89,6 @@
     <ClInclude Include="MyJob.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
-    <ClInclude Include="MYOVERLAPPED.h">
-      <Filter>헤더 파일</Filter>
-    </ClInclude>
     <ClInclude Include="GameServer.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
@@ -96,9 +96,6 @@
       <Filter>헤더 파일</Filter>
     </ClInclude>
     <ClInclude Include="ContentsType.h">
-      <Filter>헤더 파일</Filter>
-    </ClInclude>
-    <ClInclude Include="PlayerBase.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
     <ClInclude Include="ThreadMessage.h">
@@ -159,6 +156,9 @@
       <Filter>ServerCommon</Filter>
     </ClInclude>
     <ClInclude Include="..\..\ServerCommon\ServerCommon\Assert.h">
+      <Filter>ServerCommon</Filter>
+    </ClInclude>
+    <ClInclude Include="SendThread.h">
       <Filter>ServerCommon</Filter>
     </ClInclude>
   </ItemGroup>

@@ -2,6 +2,7 @@
 #include <stack>
 #include "UpdateBase.h"
 #include "ContentsBase.h"
+
 class GameServer;
 
 class SerialContent :public UpdateBase, public ContentsBase

@@ -13,7 +13,8 @@ struct GameSession
 	LINKED_NODE node{ offsetof(GameSession,node) };
 	void* pPlayer_;
 	ContentsBase* pCurContent;
-	int ReservedNextContent;
+	int ReservedNextContent; // SerialContent에서 RegisterLeave이후 지연삭제까지 다음 목적지 컨텐츠 번호를 저장할때 쓴다
+	int serialIdx;
 	CLockFreeQueue<Packet*> recvMsgQ_;
 	SOCKET sock_;
 	ULONGLONG id_;

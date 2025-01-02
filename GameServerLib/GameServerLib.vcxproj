@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|Win32">
@@ -28,6 +28,7 @@
     <ClCompile Include="main.cpp" />
     <ClCompile Include="GameServer.cpp" />
     <ClCompile Include="ParallelContent.cpp" />
+    <ClCompile Include="SendThread.cpp" />
     <ClCompile Include="SerialContent.cpp" />
     <ClCompile Include="GameSession.cpp" />
   </ItemGroup>
@@ -54,10 +55,9 @@
     <ClInclude Include="ErrType.h" />
     <ClInclude Include="IHandler.h" />
     <ClInclude Include="MyJob.h" />
-    <ClInclude Include="MYOVERLAPPED.h" />
     <ClInclude Include="GameServer.h" />
     <ClInclude Include="ParallelContent.h" />
-    <ClInclude Include="PlayerBase.h" />
+    <ClInclude Include="SendThread.h" />
     <ClInclude Include="SerialContent.h" />
     <ClInclude Include="GameSession.h" />
     <ClInclude Include="ThreadMessage.h" />
@@ -177,6 +177,7 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <Optimization>Disabled</Optimization>
+      <BrowseInformation>true</BrowseInformation>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -184,6 +185,9 @@
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
+    <Bscmake>
+      <PreserveSbr>true</PreserveSbr>
+    </Bscmake>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

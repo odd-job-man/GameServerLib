@@ -1,6 +1,6 @@
 #include <WinSock2.h>
-#include "GameServer.h"
 #include "SerialContent.h"
+#include "GameServer.h"
 
 SerialContent::SerialContent(const DWORD tickPerFrame, const HANDLE hCompletionPort, const LONG pqcsLimit, GameServer* pGameServer)
 	:UpdateBase{ tickPerFrame,hCompletionPort,pqcsLimit }, ContentsBase{ true,pGameServer }, sessionList{ offsetof(GameSession,node) }
@@ -77,7 +77,7 @@ void SerialContent::FlushInterContentsMsgQ()
 		{
 			if (InterlockedDecrement(&pSession->IoCnt_) == 0)
 			{
-				ReleaseSession(pSession);
+				ReleaseSession_AT_ONCE_NOT_CALL_ONLEAVE_ONRELEASE(pSession);
 				break;
 			}
 
