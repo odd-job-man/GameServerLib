@@ -10,9 +10,10 @@
 #include "Logger.h"
 #include "Parser.h"
 #include <locale>
-#include "Timer.h"
+#include "Scheduler.h"
 #include "GameServer.h"
 #include "ContentsBase.h"
+#include "Assert.h"
 #pragma comment(lib,"LoggerMt.lib")
 #pragma comment(lib, "ws2_32.lib")
 #pragma comment(lib,"TextParser.lib")
@@ -110,6 +111,11 @@ GameServer::GameServer(const WCHAR* pConfigTxt)
 		LOG(L"ONOFF", SYSTEM, TEXTFILE, L"MAKE Listen SOCKET Fail ErrCode : %u", WSAGetLastError());
 		__debugbreak();
 	}
+
+	pSessionArr_ = new GameSession[maxSession_];
+
+	// 리슨소켓을 IOCP에 등록해야 AcceptEx에 대한 완료통지를 받을수 잇음
+	CreateIoCompletionPort((HANDLE)hListenSock_, hcp_, (ULONG_PTR)pSessionArr_, NULL);
 	LOG(L"ONOFF", SYSTEM, TEXTFILE, L"MAKE Listen SOCKET OK");
 
 	// bind
@@ -168,44 +174,37 @@ GameServer::GameServer(const WCHAR* pConfigTxt)
 	if (!CAddressTranslator::CheckMetaCntBits())
 		__debugbreak();
 
-
-	hAcceptThread_ = (HANDLE)_beginthreadex(NULL, 0, AcceptThread, this, CREATE_SUSPENDED, nullptr);
-	if (!hAcceptThread_)
+	SOCKET sock = socket(AF_INET, SOCK_STREAM, 0);
+	GUID guid = WSAID_ACCEPTEX;
+	DWORD bytes = 0;
+	if (SOCKET_ERROR == WSAIoctl(sock, SIO_GET_EXTENSION_FUNCTION_POINTER, &guid, sizeof(guid), &pAcceptExFuncPtr, sizeof(pAcceptExFuncPtr), &bytes, NULL, NULL))
 	{
-		LOG(L"ONOFF", SYSTEM, TEXTFILE, L"MAKE AccpetThread Fail ErrCode : %u", WSAGetLastError());
+		DWORD errCode = WSAGetLastError();
+		LOG(L"ERROR", ERR, TEXTFILE, L"WSAIoCtl Failed ErrCode : %u", errCode);
 		__debugbreak();
 	}
-	LOG(L"ONOFF", SYSTEM, TEXTFILE, L"MAKE AccpetThread OK!");
+	closesocket(sock);
 
-
-	SendPostFrameOverlapped.why = OVERLAPPED_REASON::SEND_POST_FRAME;
 	hSendPostEndEvent_ = CreateEvent(NULL, FALSE, FALSE, NULL);
-	OnPostOverlapped.why = OVERLAPPED_REASON::POST;
-	SendWorkerOverlapped.why = OVERLAPPED_REASON::SEND_WORKER;
-
-	pSessionArr_ = new GameSession[maxSession_];
 	pSockAddrInArr_ = new SOCKADDR_IN[maxSession_];
 	for (int i = maxSession_ - 1; i >= 0; --i)
-		DisconnectStack_.Push(i);
-
-	if (bAccSend == 1)
-		pSendThread_ = new SendThread{ SEND_INTERVAL,hcp_,3,this };
+		idxStack_.Push(i);
 
 	Scheduler::Init();
-
-	if (bAccSend == 1)
-		Scheduler::Register_UPDATE(static_cast<UpdateBase*>(pSendThread_));
 }
-
+GameServer::~GameServer()
+{
+}
+//용도 : SendFlag에 따라서 가능하다면 바로 클라이언트에게 메시지를 전송
 void GameServer::SendPacket(ULONGLONG id, SmartPacket& sendPacket)
 {
 	GameSession* pSession = pSessionArr_ + GameSession::GET_SESSION_INDEX(id);
-	long IoCnt = InterlockedIncrement(&pSession->IoCnt_);
+	long IoCnt = InterlockedIncrement(&pSession->refCnt_);
 
 	// 이미 RELEASE 진행중이거나 RELEASE된 경우
 	if ((IoCnt & GameSession::RELEASE_FLAG) == GameSession::RELEASE_FLAG)
 	{
-		if (InterlockedDecrement(&pSession->IoCnt_) == 0)
+		if (InterlockedDecrement(&pSession->refCnt_) == 0)
 			ReleaseSession(pSession);
 		return;
 	}
@@ -213,61 +212,63 @@ void GameServer::SendPacket(ULONGLONG id, SmartPacket& sendPacket)
 	// RELEASE 완료후 다시 세션에 대한 초기화가 완료된경우 즉 재활용
 	if (id != pSession->id_)
 	{
-		if (InterlockedDecrement(&pSession->IoCnt_) == 0)
+		if (InterlockedDecrement(&pSession->refCnt_) == 0)
 			ReleaseSession(pSession);
 		return;
 	}
 
-	// 인코딩
 	sendPacket->SetHeader<Net>();
 	sendPacket->IncreaseRefCnt();
 	pSession->sendPacketQ_.Enqueue(sendPacket.GetPacket());
 	SendPost(pSession);
 
-	if (InterlockedDecrement(&pSession->IoCnt_) == 0)
+	if (InterlockedDecrement(&pSession->refCnt_) == 0)
 		ReleaseSession(pSession);
 }
 
+// 용도: SendFlag에 따라서 가능하다면 바로 클라이언트에게 메시지를 전송
 void GameServer::SendPacket(ULONGLONG id, Packet* pPacket)
 {
 	GameSession* pSession = pSessionArr_ + GameSession::GET_SESSION_INDEX(id);
-	long IoCnt = InterlockedIncrement(&pSession->IoCnt_);
+	long IoCnt = InterlockedIncrement(&pSession->refCnt_);
 
 	// 이미 RELEASE 진행중이거나 RELEASE된 경우
 	if ((IoCnt & GameSession::RELEASE_FLAG) == GameSession::RELEASE_FLAG)
 	{
-		if (InterlockedDecrement(&pSession->IoCnt_) == 0)
+		if (InterlockedDecrement(&pSession->refCnt_) == 0)
 			ReleaseSession(pSession);
 		return;
 	}
 
-	// RELEASE 완료후 다시 세션에 대한 초기화가 완료된경우 즉 재활용
+	// 이미 RELEASE 완료후 다시 세션이 재활용 되엇는지 체크
 	if (id != pSession->id_)
 	{
-		if (InterlockedDecrement(&pSession->IoCnt_) == 0)
+		if (InterlockedDecrement(&pSession->refCnt_) == 0)
 			ReleaseSession(pSession);
 		return;
 	}
 
 	// 인코딩
+
+
 	pPacket->SetHeader<Net>();
 	pPacket->IncreaseRefCnt();
 	pSession->sendPacketQ_.Enqueue(pPacket);
-
 	SendPost(pSession);
-	if (InterlockedDecrement(&pSession->IoCnt_) == 0)
+
+	if (InterlockedDecrement(&pSession->refCnt_) == 0)
 		ReleaseSession(pSession);
 }
 
 void GameServer::SendPacket_ALREADY_ENCODED(ULONGLONG id, Packet* pPacket)
 {
 	GameSession* pSession = pSessionArr_ + GameSession::GET_SESSION_INDEX(id);
-	long IoCnt = InterlockedIncrement(&pSession->IoCnt_);
+	long IoCnt = InterlockedIncrement(&pSession->refCnt_);
 
 	// 이미 RELEASE 진행중이거나 RELEASE된 경우
 	if ((IoCnt & GameSession::RELEASE_FLAG) == GameSession::RELEASE_FLAG)
 	{
-		if (InterlockedDecrement(&pSession->IoCnt_) == 0)
+		if (InterlockedDecrement(&pSession->refCnt_) == 0)
 			ReleaseSession(pSession);
 		return;
 	}
@@ -275,28 +276,29 @@ void GameServer::SendPacket_ALREADY_ENCODED(ULONGLONG id, Packet* pPacket)
 	// RELEASE 완료후 다시 세션에 대한 초기화가 완료된경우 즉 재활용
 	if (id != pSession->id_)
 	{
-		if (InterlockedDecrement(&pSession->IoCnt_) == 0)
+		if (InterlockedDecrement(&pSession->refCnt_) == 0)
 			ReleaseSession(pSession);
 		return;
 	}
 
 	pPacket->IncreaseRefCnt();
 	pSession->sendPacketQ_.Enqueue(pPacket);
-
 	SendPost(pSession);
-	if (InterlockedDecrement(&pSession->IoCnt_) == 0)
+
+	if (InterlockedDecrement(&pSession->refCnt_) == 0)
 		ReleaseSession(pSession);
 }
 
-void GameServer::SendPacket_ENQUEUE_ONLY(ULONGLONG id, Packet* pPacket)
+// 용도 : 메시지를 Send메시지 큐에 Enqueue만 하는 용도로 사용. 주로 메시지를 모아서 보내는 직렬 컨텐츠에서 활용
+void GameServer::EnqPacket(ULONGLONG id, Packet* pPacket)
 {
 	GameSession* pSession = pSessionArr_ + GameSession::GET_SESSION_INDEX(id);
-	long IoCnt = InterlockedIncrement(&pSession->IoCnt_);
+	long IoCnt = InterlockedIncrement(&pSession->refCnt_);
 
 	// 이미 RELEASE 진행중이거나 RELEASE된 경우
 	if ((IoCnt & GameSession::RELEASE_FLAG) == GameSession::RELEASE_FLAG)
 	{
-		if (InterlockedDecrement(&pSession->IoCnt_) == 0)
+		if (InterlockedDecrement(&pSession->refCnt_) == 0)
 			ReleaseSession(pSession);
 		return;
 	}
@@ -304,15 +306,20 @@ void GameServer::SendPacket_ENQUEUE_ONLY(ULONGLONG id, Packet* pPacket)
 	// RELEASE 완료후 다시 세션에 대한 초기화가 완료된경우 즉 재활용
 	if (id != pSession->id_)
 	{
-		if (InterlockedDecrement(&pSession->IoCnt_) == 0)
+		if (InterlockedDecrement(&pSession->refCnt_) == 0)
 			ReleaseSession(pSession);
 		return;
 	}
+
+	//char* pTemp = pPacket->GetPayloadStartPos<Net>();
+	//if (*((WORD*)pTemp) == 101)
+	//	__debugbreak();
 
 	pPacket->SetHeader<Net>();
 	pPacket->IncreaseRefCnt();
 	pSession->sendPacketQ_.Enqueue(pPacket);
-	if (InterlockedDecrement(&pSession->IoCnt_) == 0)
+
+	if (InterlockedDecrement(&pSession->refCnt_) == 0)
 		ReleaseSession(pSession);
 }
 
@@ -335,17 +342,19 @@ void GameServer::ShutDown()
 			__debugbreak();
 		}
 	}
-	// 리슨소켓을 닫아서 Accept를 막는다
-	closesocket(hListenSock_);
-	WaitForSingleObject(hAcceptThread_, INFINITE);
-	CloseHandle(hAcceptThread_);
 
-	//세션 0될때까지 돌린다
-	while (InterlockedXor(&lSessionNum_, 0) != 0)
+	// 리슨소켓을 닫아서 Accept를 막는다
+	InterlockedExchange((LONG*)&bStopAccept, TRUE);
+	closesocket(hListenSock_);
+
+	//걸린 AcceptEx도 없고, 남은 세션도 0될때까지 돌린다
+	while (InterlockedXor(&acceptAllocedCnt_, 0) != 0 && InterlockedXor(&lSessionNum_, 0) != 0)
 	{
 		for (int i = 0; i < maxSession_; ++i)
 		{
-			CancelIoEx((HANDLE)pSessionArr_[i].sock_, nullptr);
+			GameSession* pSession = pSessionArr_ + i;
+			CancelIoEx((HANDLE)pSession->sock_, &pSession->recvOverlapped.overlapped);
+			CancelIoEx((HANDLE)pSession->sock_, &pSession->sendOverlapped.overlapped);
 			InterlockedExchange((LONG*)&pSessionArr_[i].bDisconnectCalled_, TRUE);
 		}
 	}
@@ -365,14 +374,11 @@ void GameServer::ShutDown()
 	CloseHandle(hcp_);
 	for (DWORD i = 0; i < IOCP_WORKER_THREAD_NUM_; ++i)
 		CloseHandle(hIOCPWorkerThreadArr_[i]);
+
 	delete[] pSessionArr_;
 	delete[] pSockAddrInArr_;
 	CloseHandle(hSendPostEndEvent_);
 	CloseHandle(hShutDownEvent_);
-
-	if (bAccSend == 1)
-		delete pSendThread_;
-	OnResourceCleanAtShutDown();
 }
 
 void GameServer::RequestShutDown()
@@ -386,21 +392,20 @@ ULONGLONG GameServer::GetSessionID(const void* pPlayer)
 	return ((GameSession*)(pSessionArr_ + idx))->id_;
 }
 
-const SOCKADDR_IN* GameServer::GetSockAddrIn(const void* pPlayer)
+const SOCKADDR_IN* GameServer::GetSockAddrIn(ULONGLONG sessionID)
 {
-	short idx = (short)(((ULONG_PTR)pPlayer - (ULONG_PTR)pPlayerArr_) / playerSize_);
-	return pSockAddrInArr_ + idx;
+	return pSockAddrInArr_ + GameSession::GET_SESSION_INDEX(sessionID);
 }
 
 void GameServer::Disconnect(ULONGLONG id)
 {
 	GameSession* pSession = pSessionArr_ + GameSession::GET_SESSION_INDEX(id);
-	long IoCnt = InterlockedIncrement(&pSession->IoCnt_);
+	long IoCnt = InterlockedIncrement(&pSession->refCnt_);
 
 	// RELEASE진행중 혹은 진행완료
 	if ((IoCnt & GameSession::RELEASE_FLAG) == GameSession::RELEASE_FLAG)
 	{
-		if (InterlockedDecrement(&pSession->IoCnt_) == 0)
+		if (InterlockedDecrement(&pSession->refCnt_) == 0)
 			ReleaseSession(pSession);
 		return;
 	}
@@ -408,7 +413,7 @@ void GameServer::Disconnect(ULONGLONG id)
 	// RELEASE후 재활용까지 되엇을때
 	if (id != pSession->id_)
 	{
-		if (InterlockedDecrement(&pSession->IoCnt_) == 0)
+		if (InterlockedDecrement(&pSession->refCnt_) == 0)
 			ReleaseSession(pSession);
 		return;
 	}
@@ -416,16 +421,17 @@ void GameServer::Disconnect(ULONGLONG id)
 	// Disconnect 1회 제한
 	if ((bool)InterlockedExchange((LONG*)&pSession->bDisconnectCalled_, TRUE) == TRUE)
 	{
-		if (InterlockedDecrement(&pSession->IoCnt_) == 0)
+		if (InterlockedDecrement(&pSession->refCnt_) == 0)
 			ReleaseSession(pSession);
 		return;
 	}
 
 	// 여기 도달햇다면 같은 세션에 대해서 RELEASE 조차 호출되지 않은상태임이 보장된다
-	CancelIoEx((HANDLE)pSession->sock_, nullptr);
+	CancelIoEx((HANDLE)pSession->sock_, &pSession->recvOverlapped.overlapped);
+	CancelIoEx((HANDLE)pSession->sock_, &pSession->sendOverlapped.overlapped);
 
 	// CancelIoEx호출로 인해서 RELEASE가 호출되엇어야 햇지만 위에서의 InterlockedIncrement 때문에 호출이 안된 경우 업보청산
-	if (InterlockedDecrement(&pSession->IoCnt_) == 0)
+	if (InterlockedDecrement(&pSession->refCnt_) == 0)
 		ReleaseSession(pSession);
 }
 
@@ -436,7 +442,7 @@ void GameServer::ProcessTimeOut()
 	{
 		ULONGLONG sessionId = pSessionArr_[i].id_;
 
-		if ((pSessionArr_[i].IoCnt_ & GameSession::RELEASE_FLAG) == GameSession::RELEASE_FLAG)
+		if ((pSessionArr_[i].refCnt_ & GameSession::RELEASE_FLAG) == GameSession::RELEASE_FLAG)
 			continue;
 
 		if (currentTime < pSessionArr_[i].lastRecvTime + TIME_OUT_MILLISECONDS_)
@@ -446,128 +452,106 @@ void GameServer::ProcessTimeOut()
 	}
 }
 
-
-
-unsigned __stdcall GameServer::AcceptThread(LPVOID arg)
-{
-	SOCKET clientSock;
-	SOCKADDR_IN clientAddr;
-	int addrlen;
-	GameServer* pGameServer = (GameServer*)arg;
-	addrlen = sizeof(clientAddr);
-
-	while (1)
-	{
-		clientSock = accept(pGameServer->hListenSock_, (SOCKADDR*)&clientAddr, &addrlen);
-		InterlockedIncrement((LONG*)&pGameServer->acceptCounter_);
-
-		if (clientSock == INVALID_SOCKET)
-		{
-			DWORD dwErrCode = WSAGetLastError();
-			if (dwErrCode != WSAEINTR && dwErrCode != WSAENOTSOCK)
-			{
-				__debugbreak();
-			}
-			return 0;
-		}
-
-		if (!pGameServer->OnConnectionRequest(&clientAddr))
-		{
-			closesocket(clientSock);
-			continue;
-		}
-
-		InterlockedIncrement((LONG*)&pGameServer->lSessionNum_);
-
-		short idx = pGameServer->DisconnectStack_.Pop().value();
-		GameSession* pSession = pGameServer->pSessionArr_ + idx;
-		pSession->Init(clientSock, pGameServer->ullIdCounter, idx, GetPlayerPtr(idx));
-		memcpy(pGameServer->pSockAddrInArr_ + idx, &clientAddr, sizeof(SOCKADDR_IN));
-
-		CreateIoCompletionPort((HANDLE)pSession->sock_, pGameServer->hcp_, (ULONG_PTR)pSession, 0);
-		++pGameServer->ullIdCounter;
-
-		InterlockedIncrement(&pSession->IoCnt_);
-		InterlockedAnd(&pSession->IoCnt_, ~GameSession::RELEASE_FLAG);
-
-		pGameServer->OnAccept(pSession->pPlayer_);
-		pGameServer->RecvPost(pSession);
-
-		if (InterlockedDecrement(&pSession->IoCnt_) == 0)
-			pGameServer->ReleaseSession(pSession);
-	}
-	return 0;
-}
-
+// listen의 Completion Key는 GameSession* 배열의 맨 시작위치
 unsigned __stdcall GameServer::IOCPWorkerThread(LPVOID arg)
 {
-	GameServer* pNetServer = (GameServer*)arg;
+	GameServer* pGameServer = (GameServer*)arg;
 	while (1)
 	{
 		MYOVERLAPPED* pOverlapped = nullptr;
 		DWORD dwNOBT = 0;
 		GameSession* pSession = nullptr;
 		bool bContinue = false;
-		BOOL bGQCSRet = GetQueuedCompletionStatus(pNetServer->hcp_, &dwNOBT, (PULONG_PTR)&pSession, (LPOVERLAPPED*)&pOverlapped, INFINITE);
+		BOOL bGQCSRet = GetQueuedCompletionStatus(pGameServer->hcp_, &dwNOBT, 
+			(PULONG_PTR)&pSession, (LPOVERLAPPED*)&pOverlapped, INFINITE);
 		do
 		{
 			if (!pOverlapped && !dwNOBT && !pSession)
 				return 0;
 
-			//정상종료
-			if (bGQCSRet && dwNOBT == 0)
-				break;
-
+			// 실패한 IO에 대한 완료통지(Send,Recv의 경우에는 연결이끊어진 상태라서 ReleaseSession 될것이고, Accept의경우에는 인덱스만 반환하면 됨)
 			if (!bGQCSRet && pOverlapped)
+			{
+				if (pOverlapped->why == OVERLAPPED_REASON::ACCEPT)
+				{
+					InterlockedDecrement((LONG*)&pGameServer->acceptAllocedCnt_);
+					GameSession* pTarget = (GameSession*)((char*)pOverlapped - offsetof(GameSession, acceptOverlapped));
+					pGameServer->idxStack_.Push((short)(pTarget - pSession));
+					bContinue = true;
+					// ShutDown을 위해 리슨소켓을 닫은 경우를 제외하고 AcceptEx가 실패하는 상황 자체가 비정상 상황임
+					if (InterlockedXor((LONG*)&pGameServer->bStopAccept, 0) != TRUE)
+					{
+						LOG(L"ERROR", ERR, TEXTFILE, L"AcceptEx Failed WithOut Close Listen Socket");
+						__debugbreak();
+					}
+				}
 				break;
+			}
 
 			switch (pOverlapped->why)
 			{
 			case OVERLAPPED_REASON::SEND:
-				pNetServer->SendProc(pSession, dwNOBT);
+			{
+				pGameServer->SendProc(pSession, dwNOBT);
 				break;
+			}
 
 			case OVERLAPPED_REASON::RECV:
-				pNetServer->RecvProc(pSession, dwNOBT);
+			{
+				pGameServer->RecvProc(pSession, dwNOBT);
 				break;
+			}
 
 			case OVERLAPPED_REASON::TIMEOUT:
-				pNetServer->ProcessTimeOut();
+			{
+				pGameServer->ProcessTimeOut();
 				bContinue = true;
 				break;
-
-			case OVERLAPPED_REASON::SEND_POST_FRAME:
-				bContinue = true;
-				break;
-
-			case OVERLAPPED_REASON::SEND_ACCUM:
-				pNetServer->SendProcAccum(pSession, dwNOBT);
-				break;
+			}
 
 			case OVERLAPPED_REASON::UPDATE:
+			{
 				((UpdateBase*)(pSession))->Update();
 				bContinue = true;
 				break;
+			}
 
 			case OVERLAPPED_REASON::POST:
-				pNetServer->OnPost(pSession);
+			{
+				pGameServer->OnPost(pSession);
 				bContinue = true;
 				break;
+			}
 
 			case OVERLAPPED_REASON::SEND_WORKER:
-				pNetServer->SendPost(pSession);
-				InterlockedExchange((LONG*)&pSession->bSendingAtWorker_, FALSE);
+			{
+				pGameServer->SendPost(pSession);
 				break;
+			}
+
+			case OVERLAPPED_REASON::ACCEPT:
+			{
+				// CompletionKey를 TargetSession으로 변경
+				pSession = (GameSession*)((char*)(pOverlapped) - offsetof(GameSession, acceptOverlapped));
+				pGameServer->AcceptProc(pSession);
+				break;
+			}
 
 			case OVERLAPPED_REASON::CONNECT: // 안씀
+			{
 				break;
+			}
 
 			case OVERLAPPED_REASON::DISCONNECT: // 안씀
+			{
 				break;
+			}
 
 			case OVERLAPPED_REASON::DB_WRITE:
+			{
 				bContinue = true;
 				break;
+			}
 
 			default:
 				__debugbreak();
@@ -576,10 +560,15 @@ unsigned __stdcall GameServer::IOCPWorkerThread(LPVOID arg)
 		} while (0);
 
 		if (bContinue)
+		{
+			while (!pGameServer->bStopAccept && pGameServer->AcceptPost() != -1);
 			continue;
+		}
 
-		if (InterlockedDecrement(&pSession->IoCnt_) == 0)
-			pNetServer->ReleaseSession(pSession);
+		if (InterlockedDecrement(&pSession->refCnt_) == 0)
+			pGameServer->ReleaseSession(pSession);
+
+		while (!pGameServer->bStopAccept && pGameServer->AcceptPost() != -1);
 	}
 	return 0;
 }
@@ -606,7 +595,7 @@ BOOL GameServer::RecvPost(GameSession* pSession)
 	ZeroMemory(&pSession->recvOverlapped, sizeof(WSAOVERLAPPED));
 	pSession->recvOverlapped.why = OVERLAPPED_REASON::RECV;
 	DWORD flags = 0;
-	InterlockedIncrement(&pSession->IoCnt_);
+	InterlockedIncrement(&pSession->refCnt_);
 	int iRecvRet = WSARecv(pSession->sock_, wsa, 2, nullptr, &flags, (LPWSAOVERLAPPED)&(pSession->recvOverlapped), nullptr);
 	if (iRecvRet == SOCKET_ERROR)
 	{
@@ -615,13 +604,13 @@ BOOL GameServer::RecvPost(GameSession* pSession)
 		{
 			if (pSession->bDisconnectCalled_ == TRUE)
 			{
-				CancelIoEx((HANDLE)pSession->sock_, nullptr);
+				CancelIoEx((HANDLE)pSession->sock_, &pSession->recvOverlapped.overlapped);
 				return FALSE;
 			}
 			return TRUE;
 		}
 
-		InterlockedDecrement(&(pSession->IoCnt_));
+		InterlockedDecrement(&(pSession->refCnt_));
 		if (dwErrCode == WSAECONNRESET)
 			return FALSE;
 
@@ -639,15 +628,10 @@ BOOL GameServer::SendPost(GameSession* pSession)
 		if (pSession->sendPacketQ_.GetSize() <= 0)
 			return FALSE;
 
-		// 현재 값을 TRUE로 바꾼다. 원래 TRUE엿다면 반환값이 TRUE일것이며 그렇다면 현재 SEND 진행중이기 때문에 그냥 빠저나간다
-		// 이 조건문의 위치로 인하여 Out은 바뀌지 않을것임이 보장된다.
-		// 하지만 SendPost 실행주체가 Send완료통지 스레드인 경우에는 in의 위치는 SendPacket으로 인해서 바뀔수가 있다.
-		// iUseSize를 구하는 시점에서의 DirectDequeueSize의 값이 달라질수있다.
+		// SendFlag 확인 및 변경
 		if (InterlockedExchange((LONG*)&pSession->bSendingInProgress_, TRUE) == TRUE)
 			return TRUE;
 
-		// SendPacket에서 in을 옮겨서 UseSize가 0보다 커진시점에서 Send완료통지가 도착해서 Out을 옮기고 플래그 해제 Recv완료통지 스레드가 먼저 SendPost에 도달해 플래그를 선점한경우 UseSize가 0이나온다.
-		// 여기서 flag를 다시 FALSE로 바꾸어주지 않아서 멈춤발생
 		dwBufferNum = pSession->sendPacketQ_.GetSize();
 
 		if (dwBufferNum <= 0)
@@ -656,9 +640,9 @@ BOOL GameServer::SendPost(GameSession* pSession)
 			break;
 	}
 
-	WSABUF wsa[50];
+	WSABUF wsa[200];
 	DWORD i;
-	for (i = 0; i < 50 && i < dwBufferNum; ++i)
+	for (i = 0; i < 200 && i < dwBufferNum; ++i)
 	{
 #pragma warning(disable : 26815)
 		Packet* pPacket = pSession->sendPacketQ_.Dequeue().value();
@@ -670,10 +654,10 @@ BOOL GameServer::SendPost(GameSession* pSession)
 
 	InterlockedExchange(&pSession->lSendBufNum_, i);
 	InterlockedAdd(&sendTPS_, i);
-	InterlockedIncrement(&pSession->IoCnt_);
+	InterlockedIncrement(&pSession->refCnt_);
 	ZeroMemory(&(pSession->sendOverlapped.overlapped), sizeof(WSAOVERLAPPED));
 	pSession->sendOverlapped.why = OVERLAPPED_REASON::SEND;
-	int iSendRet = WSASend(pSession->sock_, wsa, i, nullptr, 0, (LPWSAOVERLAPPED)&(pSession->sendOverlapped), nullptr);
+	int iSendRet = WSASend(pSession->sock_, wsa, i, nullptr, 0, (LPWSAOVERLAPPED) & (pSession->sendOverlapped), nullptr);
 	if (iSendRet == SOCKET_ERROR)
 	{
 		DWORD dwErrCode = WSAGetLastError();
@@ -681,13 +665,13 @@ BOOL GameServer::SendPost(GameSession* pSession)
 		{
 			if (pSession->bDisconnectCalled_ == TRUE)
 			{
-				CancelIoEx((HANDLE)pSession->sock_, nullptr);
+				CancelIoEx((HANDLE)pSession->sock_, &pSession->sendOverlapped.overlapped);
 				return FALSE;
 			}
 			return TRUE;
 		}
 
-		InterlockedDecrement(&(pSession->IoCnt_));
+		InterlockedDecrement(&(pSession->refCnt_));
 		if (dwErrCode == WSAECONNRESET)
 			return FALSE;
 
@@ -697,75 +681,51 @@ BOOL GameServer::SendPost(GameSession* pSession)
 	return TRUE;
 }
 
-BOOL GameServer::SendPostAccum(GameSession* pSession)
+
+int GameServer::AcceptPost()
 {
-	DWORD dwBufferNum;
-	while (1)
+	std::optional<short> opt = idxStack_.Pop();
+	if (!opt.has_value())
+		return -1;
+
+	short idx = opt.value();
+	GameSession* pSession = pSessionArr_ + idx; // Pop한 인덱스에 해당하는 세션 찾기
+	pSession->Init(socket(AF_INET, SOCK_STREAM, 0), 
+		InterlockedIncrement64((LONG64*)&ullIdCounter) - 1, idx, ((void*)((char*)pPlayerArr_ + playerSize_ * idx)));
+
+	CreateIoCompletionPort((HANDLE)pSession->sock_, hcp_, (ULONG_PTR)pSession, 0); // IOCP에 소켓 등록
+
+	ZeroMemory(&pSession->acceptOverlapped.overlapped, sizeof(WSAOVERLAPPED));
+	pSession->acceptOverlapped.why = OVERLAPPED_REASON::ACCEPT;
+
+	DWORD trans;
+	if (FALSE == pAcceptExFuncPtr(hListenSock_, pSession->sock_, pSession->recvRB_.GetWriteStartPtr(), 0, // AcceptEx
+		sizeof(SOCKADDR_IN) + 16, sizeof(SOCKADDR_IN) + 16, &trans, &pSession->acceptOverlapped.overlapped))
 	{
-		if (pSession->sendPacketQ_.GetSize() <= 0)
-			return FALSE;
-
-		// 현재 값을 TRUE로 바꾼다. 원래 TRUE엿다면 반환값이 TRUE일것이며 그렇다면 현재 SEND 진행중이기 때문에 그냥 빠저나간다
-		// 이 조건문의 위치로 인하여 Out은 바뀌지 않을것임이 보장된다.
-		// 하지만 SendPost 실행주체가 Send완료통지 스레드인 경우에는 in의 위치는 SendPacket으로 인해서 바뀔수가 있다.
-		// iUseSize를 구하는 시점에서의 DirectDequeueSize의 값이 달라질수있다.
-		if (InterlockedExchange((LONG*)&pSession->bSendingInProgress_, TRUE) == TRUE)
-			return TRUE;
-
-		// SendPacket에서 in을 옮겨서 UseSize가 0보다 커진시점에서 Send완료통지가 도착해서 Out을 옮기고 플래그 해제 Recv완료통지 스레드가 먼저 SendPost에 도달해 플래그를 선점한경우 UseSize가 0이나온다.
-		// 여기서 flag를 다시 FALSE로 바꾸어주지 않아서 멈춤발생
-		dwBufferNum = pSession->sendPacketQ_.GetSize();
-		if (dwBufferNum <= 0)
-			InterlockedExchange((LONG*)&pSession->bSendingInProgress_, FALSE);
-		else
-			break;
-	}
-
-	WSABUF wsa[50];
-	DWORD i;
-	for (i = 0; i < 50 && i < dwBufferNum; ++i)
-	{
-		Packet* pPacket = pSession->sendPacketQ_.Dequeue().value();
-		wsa[i].buf = (char*)pPacket->pBuffer_;
-		wsa[i].len = pPacket->GetUsedDataSize() + sizeof(Packet::NetHeader);
-		pSession->pSendPacketArr_[i] = pPacket;
-	}
-
-	InterlockedExchange(&pSession->lSendBufNum_, i);
-	InterlockedAdd(&sendTPS_, i);
-	InterlockedIncrement(&pSession->IoCnt_);
-	ZeroMemory(&(pSession->sendOverlapped.overlapped), sizeof(WSAOVERLAPPED));
-	pSession->sendOverlapped.why = OVERLAPPED_REASON::SEND_ACCUM;
-	int iSendRet = WSASend(pSession->sock_, wsa, i, nullptr, 0, (LPWSAOVERLAPPED)&(pSession->sendOverlapped), nullptr);
-	if (iSendRet == SOCKET_ERROR)
-	{
-		DWORD dwErrCode = WSAGetLastError();
-		if (dwErrCode == WSA_IO_PENDING)
+		DWORD errCode = WSAGetLastError();
+		if (errCode != WSA_IO_PENDING)
 		{
-			if (pSession->bDisconnectCalled_ == TRUE)
+			// 연결은 성립되엇지만 상대방에 의해 먼저 연결이 종료된 경우
+			// 모두 내보내기 위해 리슨 소켓을 닫아버린 경우(해당함수 진입 이후 ShutDown 호출되어 플래그가 바뀌면 여기 진입 가능함 -> 재현완료)
+			if (errCode == WSAECONNRESET || (errCode == WSAENOTSOCK && InterlockedXor((LONG*)&bStopAccept, 0) == TRUE))
 			{
-				CancelIoEx((HANDLE)pSession->sock_, nullptr);
-				return FALSE;
+				idxStack_.Push(idx);
+				return 0;
 			}
-			return TRUE;
+			LOG(L"ERROR", ERR, TEXTFILE, L"AcceptEx Failed ErrCode : %u", WSAGetLastError());
+			__debugbreak();
 		}
-
-		InterlockedDecrement(&(pSession->IoCnt_));
-		if (dwErrCode == WSAECONNRESET)
-			return FALSE;
-
-		LOG(L"Disconnect", ERR, TEXTFILE, L"Client Disconnect By ErrCode : %u", dwErrCode);
-		return FALSE;
 	}
-	return TRUE;
+	InterlockedIncrement(&acceptAllocedCnt_);
+	return 0;
 }
 
 void GameServer::ReleaseSession(GameSession* pSession) 
 {
-	if (InterlockedCompareExchange(&pSession->IoCnt_, GameSession::RELEASE_FLAG | 0, 0) != 0)
+	if (InterlockedCompareExchange(&pSession->refCnt_, GameSession::RELEASE_FLAG | 0, 0) != 0)
 		return;
 
-	// Release 될 Session의 직렬화 버퍼 정리
+	// Release 될 Session의 Send직렬화 버퍼 정리
 	for (LONG i = 0; i < pSession->lSendBufNum_; ++i)
 	{
 		Packet* pPacket = pSession->pSendPacketArr_[i];
@@ -775,6 +735,7 @@ void GameServer::ReleaseSession(GameSession* pSession)
 		}
 	}
 
+	// Release 될 Session의 Send메시지 큐 정리
 	LONG size = pSession->sendPacketQ_.GetSize();
 	for (LONG i = 0; i < size; ++i)
 	{
@@ -786,7 +747,7 @@ void GameServer::ReleaseSession(GameSession* pSession)
 	}
 
 	closesocket(pSession->sock_);
-	pSession->pCurContent->ReleaseSessionPost(pSession);
+	pSession->pCurContent->ReleaseSession(pSession);
 }
 
 void GameServer::RecvProc(GameSession* pSession, int numberOfBytesTransferred)
@@ -853,6 +814,51 @@ void GameServer::SendProc(GameSession* pSession, DWORD dwNumberOfBytesTransferre
 	SendPost(pSession);
 }
 
+void GameServer::AcceptProc(GameSession* pSession)
+{
+	InterlockedIncrement((LONG*)&acceptCounter_);
+	InterlockedDecrement((LONG*)&acceptAllocedCnt_);
+
+	// listen socket의 소켓 속성을 그대로 가져옴(링거 등...)
+	if (SOCKET_ERROR == setsockopt(pSession->sock_, SOL_SOCKET, SO_UPDATE_ACCEPT_CONTEXT, (const char*)&hListenSock_, sizeof(SOCKET)))
+	{
+		DWORD errCode = WSAGetLastError();
+		if (errCode == WSAENOTSOCK && InterlockedXor((LONG*)&bStopAccept, 0) == TRUE)
+			return;
+
+		LOG(L"ERROR", ERR, TEXTFILE, L"setsockopt SO_UPDATE_ACCEPT_CONTEXT At AcceptProc Failed, errCode : %u", errCode);
+		__debugbreak();
+	}
+
+	int sockAddrLen = sizeof(SOCKADDR_IN);
+	SOCKADDR_IN* pSockAddrIn = pSockAddrInArr_ + (pSession - pSessionArr_);
+	if (SOCKET_ERROR == getpeername(pSession->sock_, (SOCKADDR*)pSockAddrIn, &sockAddrLen))
+	{
+		DWORD errCode = WSAGetLastError();
+		LOG(L"ERROR", ERR, TEXTFILE, L"getpeername At AcceptProc Failed, errCode : %u", errCode);
+		__debugbreak();
+	}
+
+	if (OnConnectionRequest(pSockAddrIn) == FALSE)
+	{
+		closesocket(pSession->sock_);
+		idxStack_.Push((short)(pSession - pSessionArr_));
+		return;
+	}
+	InterlockedIncrement(&lSessionNum_);
+
+	InterlockedIncrement(&pSession->refCnt_);
+	InterlockedAnd(&pSession->refCnt_, ~GameSession::RELEASE_FLAG);
+
+	OnAccept(pSession->pPlayer_);
+	RecvPost(pSession);
+}
+
+void GameServer::InitialAccept()
+{
+	while (AcceptPost() != -1);
+}
+
 void GameServer::SendProcAccum(GameSession* pSession, DWORD dwNumberOfBytesTransferred)
 {
 	LONG sendBufNum = InterlockedExchange(&pSession->lSendBufNum_, 0);
@@ -871,13 +877,5 @@ void GameServer::SetEntirePlayerMemory(int playerSize)
 {
 	playerSize_ = playerSize;
 	pPlayerArr_ = malloc(playerSize * maxSession_);
-}
-
-void GameServer::SENDPACKET(ULONGLONG id, SmartPacket& sendPacket)
-{
-	if (bAccSend == 1)
-		SendPacket_ENQUEUE_ONLY(id, sendPacket.GetPacket());
-	else
-		SendPacket(id, sendPacket.GetPacket());
 }
 

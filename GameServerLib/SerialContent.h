@@ -5,25 +5,23 @@
 
 class GameServer;
 
-class SerialContent :public UpdateBase, public ContentsBase
+class SerialContent :public ContentsBase, public UpdateBase
 {
 public:
 	SerialContent(const DWORD tickPerFrame, const HANDLE hCompletionPort, const LONG pqcsLimit, GameServer* pGameServer);
-
-	// SerialContent 오리지널
-	virtual void ProcessEachPlayer() = 0;
-
+	virtual ~SerialContent();
 	// ContentBase overriding
 	virtual void WorkerHanlePacketAtRecvLoop(Packet* pPacket, GameSession* pSession) override;
 	virtual void RequestFirstEnter(void* pPlayer) override;
 	virtual void RequestEnter(const bool bPrevContentsIsSerialize, GameSession* pSession) override;
-	virtual void ReleaseSessionPost(GameSession* pSession) override;
+	virtual void ReleaseSession(GameSession* pSession) override;
 	virtual void RegisterLeave(void* pPlayer, int nextContent) override;
+	virtual void ProcessEachPlayer() = 0;
 
 	// UpdateBase overriding;
 	virtual void Update_IMPL() override;
-
 private:
+	// SerialContent 오리지널
 	void FlushInterContentsMsgQ();
 	void FlushSessionRecvMsgQ();
 	void FlushLeaveStack();

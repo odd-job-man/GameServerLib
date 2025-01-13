@@ -10,22 +10,23 @@ SendThread::SendThread(DWORD tickPerFrame, HANDLE hCompletionPort, LONG pqcsLimi
 
 void SendThread::Update_IMPL()
 {
+	__debugbreak();
 	for (int i = 0; i < pGameServer_->maxSession_; ++i)
 	{
 		GameSession* pSession = pGameServer_->pSessionArr_ + i;
-		long IoCnt = InterlockedIncrement(&pSession->IoCnt_);
+		long IoCnt = InterlockedIncrement(&pSession->refCnt_);
 
 		// 이미 RELEASE 진행중이거나 RELEASE된 경우
 		if ((IoCnt & GameSession::RELEASE_FLAG) == GameSession::RELEASE_FLAG)
 		{
-			if (InterlockedDecrement(&pSession->IoCnt_) == 0)
+			if (InterlockedDecrement(&pSession->refCnt_) == 0)
 				pGameServer_->ReleaseSession(pSession);
 			continue;
 		}
 
-		pGameServer_->SendPostAccum(pSession);
+		pGameServer_->SendPost(pSession);
 
-		if (InterlockedDecrement(&pSession->IoCnt_) == 0)
+		if (InterlockedDecrement(&pSession->refCnt_) == 0)
 			pGameServer_->ReleaseSession(pSession);
 	}
 }

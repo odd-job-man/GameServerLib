@@ -1,10 +1,10 @@
 #include <WinSock2.h>
-#include "ContentsBase.h"
 #include "GameServer.h"
+#include "ContentsBase.h"
 
-void ContentsBase::ReleaseSession_AT_ONCE_NOT_CALL_ONLEAVE_ONRELEASE(GameSession* pSession)
+void ContentsBase::ReleaseSession_AT_ONCE_NOT_CALL_ONLEAVE(GameSession* pSession)
 {
-	if (InterlockedCompareExchange(&pSession->IoCnt_, GameSession::RELEASE_FLAG | 0, 0) != 0)
+	if (InterlockedCompareExchange(&pSession->refCnt_, GameSession::RELEASE_FLAG | 0, 0) != 0)
 		return;
 
 	// Release 될 Session의 직렬화 버퍼 정리
@@ -35,7 +35,11 @@ void ContentsBase::ReleaseSession_AT_ONCE_NOT_CALL_ONLEAVE_ONRELEASE(GameSession
 		PACKET_FREE(pPacket);
 	}
 
-	pGameServer_->DisconnectStack_.Push((short)(pSession - pGameServer_->pSessionArr_));
+	pGameServer_->idxStack_.Push((short)(pSession - pGameServer_->pSessionArr_));
 	InterlockedIncrement(&pGameServer_->disconnectTPS_);
 	InterlockedDecrement(&pGameServer_->lSessionNum_);
+}
+
+ContentsBase::~ContentsBase()
+{
 }

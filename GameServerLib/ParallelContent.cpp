@@ -7,10 +7,18 @@ ParallelContent::ParallelContent(GameServer* pGameServer)
 	:ContentsBase{ false,pGameServer }
 {}
 
-void ParallelContent::WorkerHanlePacketAtRecvLoop(Packet * pPacket, GameSession * pSession)
+ParallelContent::~ParallelContent()
+{
+}
+
+void ParallelContent::WorkerHanlePacketAtRecvLoop(Packet* pPacket, GameSession* pSession)
 {
 	pSession->recvMsgQ_.Enqueue(pPacket);
+
+#pragma warning(disable : 26815)
 	Packet* pTargetPacket = pSession->recvMsgQ_.Dequeue().value();
+#pragma warning(default : 26815)
+
 	OnRecv(pPacket, pSession->pPlayer_);
 	PACKET_FREE(pTargetPacket);
 }
@@ -33,25 +41,28 @@ void ParallelContent::RequestEnter(const bool bPrevContentsIsSerialize, GameSess
 	// 없애기 위해 OnEnter호출후 IoCnt 내림
 	if (bPrevContentsIsSerialize)
 	{
-		if (InterlockedDecrement(&pSession->IoCnt_) == 0)
+		if (InterlockedDecrement(&pSession->refCnt_) == 0)
 		{
-			ReleaseSession_AT_ONCE_NOT_CALL_ONLEAVE_ONRELEASE(pSession);
+			ReleaseSession_AT_ONCE_NOT_CALL_ONLEAVE(pSession);
 			return;
 		}
 	}
 }
 
-void ParallelContent::ReleaseSessionPost(GameSession* pSession)
+void ParallelContent::ReleaseSession(GameSession* pSession)
 {
 	LONG size = pSession->recvMsgQ_.GetSize();
+	// 세션의 수신 메시지 큐 비움
 	for (LONG i = 0; i < size; ++i)
 	{
+#pragma warning(disable : 26815)
 		Packet* pPacket = pSession->recvMsgQ_.Dequeue().value();
+#pragma warning(default : 26815)
 		PACKET_FREE(pPacket);
 	}
 
 	OnLeave(pSession->pPlayer_);
-	pGameServer_->DisconnectStack_.Push((short)(pSession - pGameServer_->pSessionArr_));
+	pGameServer_->idxStack_.Push((short)(pSession - pGameServer_->pSessionArr_));
 	InterlockedIncrement(&pGameServer_->disconnectTPS_);
 	InterlockedDecrement(&pGameServer_->lSessionNum_);
 }
@@ -62,3 +73,4 @@ void ParallelContent::RegisterLeave(void* pPlayer, int nextContent)
 	GameSession* pSession = pGameServer_->GetSession(pPlayer);
 	GetContentsPtr(nextContent)->RequestEnter(bSerial_, pSession);
 }
+

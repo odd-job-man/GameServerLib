@@ -23,16 +23,16 @@ struct GameSession
 	BOOL bDisconnectCalled_;
 	MYOVERLAPPED recvOverlapped;
 	MYOVERLAPPED sendOverlapped;
-	LONG IoCnt_;
+	LONG refCnt_;
+	MYOVERLAPPED acceptOverlapped;
 	CLockFreeQueue<Packet*> sendPacketQ_;
 	BOOL bSendingInProgress_;
-	BOOL bSendingAtWorker_;
-	Packet* pSendPacketArr_[50];
+	Packet* pSendPacketArr_[200];
 	RingBuffer recvRB_;
-	BOOL Init(SOCKET clientSock, ULONGLONG ullClientID, SHORT shIdx, void* pPlayer);
+	BOOL Init(SOCKET clientSock, ULONGLONG counter , SHORT idx , void* pPlayer);
 
 	GameSession()
-		:IoCnt_{ GameSession::RELEASE_FLAG | 0 }
+		:refCnt_{ GameSession::RELEASE_FLAG | 0 }
 	{}
 
 	inline static short GET_SESSION_INDEX(ULONGLONG id)
