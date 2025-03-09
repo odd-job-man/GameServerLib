@@ -19,7 +19,7 @@ void ParallelContent::WorkerHanlePacketAtRecvLoop(Packet* pPacket, GameSession* 
 	Packet* pTargetPacket = pSession->recvMsgQ_.Dequeue().value();
 #pragma warning(default : 26815)
 
-	OnRecv(pPacket, pSession->pPlayer_);
+	OnRecv(pPacket, pGameServer_->GetPlayer(pSession));
 	PACKET_FREE(pTargetPacket);
 }
 
@@ -33,7 +33,7 @@ void ParallelContent::RequestFirstEnter(void* pPlayer)
 void ParallelContent::RequestEnter(const bool bPrevContentsIsSerialize, GameSession* pSession)
 {
 	InterlockedExchangePointer((PVOID*)&pSession->pCurContent, (ContentsBase*)this);
-	OnEnter(pSession->pPlayer_);
+	OnEnter(pGameServer_->GetPlayer(pSession));
 	
 	// OnEnter가 앞인 이유는 만약 OnEnter가 iocnt를 감소시킨 뒤 진행된다면 그사이에 라이브러리의 ReleaseSession이 호출될 수 잇음
 	// 결국 해당클래스의 ReleaseSessionPost에서 OnLeave호출후 스택에 푸시함
@@ -61,7 +61,8 @@ void ParallelContent::ReleaseSession(GameSession* pSession)
 		PACKET_FREE(pPacket);
 	}
 
-	OnLeave(pSession->pPlayer_);
+	OnLeave(pGameServer_->GetPlayer(pSession));
+
 	pGameServer_->idxStack_.Push((short)(pSession - pGameServer_->pSessionArr_));
 	InterlockedIncrement(&pGameServer_->disconnectTPS_);
 	InterlockedDecrement(&pGameServer_->lSessionNum_);

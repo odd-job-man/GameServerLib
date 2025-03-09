@@ -25,6 +25,7 @@
     <ClCompile Include="..\..\ServerCommon\ServerCommon\UpdateAndTimer\Timer.cpp" />
     <ClCompile Include="..\..\ServerCommon\ServerCommon\UpdateAndTimer\UpdateBase.cpp" />
     <ClCompile Include="ContentsBase.cpp" />
+    <ClCompile Include="GameServerTimeOut.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="GameServer.cpp" />
     <ClCompile Include="ParallelContent.cpp" />
@@ -53,6 +54,7 @@
     <ClInclude Include="ContentsBase.h" />
     <ClInclude Include="ContentsType.h" />
     <ClInclude Include="ErrType.h" />
+    <ClInclude Include="GameServerTimeOut.h" />
     <ClInclude Include="IHandler.h" />
     <ClInclude Include="MyJob.h" />
     <ClInclude Include="GameServer.h" />

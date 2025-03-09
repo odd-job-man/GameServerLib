@@ -3,17 +3,14 @@
 #include "GameSession.h"
 
 
-BOOL GameSession::Init(SOCKET clientSock, ULONGLONG counter, SHORT idx, void* pPlayer)
+BOOL GameSession::Init(SOCKET clientSock, ULONGLONG counter, SHORT idx)
 {
     sock_ = clientSock;
-    pPlayer_ = pPlayer;
     bSendingInProgress_ = FALSE;
     id_ = (counter << 16) ^ idx;
-    lastRecvTime = GetTickCount64();
     bDisconnectCalled_ = FALSE;
     lSendBufNum_ = 0;
+    bLogin_ = FALSE;
     recvRB_.ClearBuffer();
     return TRUE;
 }
-
-    //InterlockedExchange(&id_, ((counter << 16) ^ idx));

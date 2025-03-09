@@ -79,7 +79,7 @@ void SerialContent::FlushInterContentsMsgQ()
 
 		InterContentsMessage* pMsg = opt.value();
 		GameSession* pSession = pMsg->pSession_;
-		void* pPlayer = pSession->pPlayer_;
+		void* pPlayer = pGameServer_->GetPlayer(pSession);
 
 		switch (pMsg->msgType_)
 		{
@@ -97,10 +97,13 @@ void SerialContent::FlushInterContentsMsgQ()
 		}
 		case en_MsgType::RELEASE:
 		{
+			// 컨텐츠에서 플레이어 정리작업(사용자가 오버라이딩)
 			OnLeave(pPlayer);
+
+			// 컨텐츠 세션 리스트에서 세션 제거
 			sessionList.remove(pSession);
 
-			// 라이브러리에서 일부분 정리햇으므로 GameServer::ReleaseSesion에서 closesocket이후만 수행하며됨
+			//Session Recv Message Queue 정리
 			LONG size = pSession->recvMsgQ_.GetSize();
 			for (LONG i = 0; i < size; ++i)
 			{
@@ -145,7 +148,7 @@ void SerialContent::FlushSessionRecvMsgQ()
 				break;
 
 			Packet* pPacket = opt.value();
-			OnRecv(pPacket, pSession->pPlayer_);
+			OnRecv(pPacket, pGameServer_->GetPlayer(pSession));
 			PACKET_FREE(pPacket);
 		}
 
@@ -156,8 +159,9 @@ void SerialContent::FlushSessionRecvMsgQ()
 		}
 
 		if (InterlockedDecrement(&pSession->refCnt_) == 0)
+		{
 			pGameServer_->ReleaseSession(pSession);
-
+		}
 		pSession = (GameSession*)sessionList.GetNext(pSession);
 	}
 }
@@ -167,7 +171,7 @@ void SerialContent::FlushLeaveStack()
 	while (!delayedLeaveStack.empty())
 	{
 		GameSession* pSession = delayedLeaveStack.top();
-		OnLeave(pSession->pPlayer_);
+		OnLeave(pGameServer_->GetPlayer(pSession));
 		sessionList.remove(pSession);
 		GetContentsPtr(pSession->ReservedNextContent)->RequestEnter(bSerial_, pSession);
 		delayedLeaveStack.pop();
